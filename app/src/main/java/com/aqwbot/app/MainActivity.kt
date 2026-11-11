@@ -12,6 +12,11 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import java.net.HttpURLConnection
+import java.net.URL
+import android.net.Uri
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -41,6 +46,7 @@ class MainActivity : AppCompatActivity() {
     private var index = 0
     private var presses = 0
     private var intervalMs = 1500L
+    private var bridge: WsTcpBridge? = null
 
     // Loop da automacao: a cada intervalo, aperta a proxima tecla da sequencia.
     private val tick = object : Runnable {
@@ -97,6 +103,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                return interceptLocal(request)
+            }
+
             override fun onPageFinished(view: WebView, url: String?) {
                 view.evaluateJavascript(rufflePayload, null)
                 // Depois de alguns segundos, confere se o Ruffle assumiu algum player.
@@ -165,9 +175,62 @@ class MainActivity : AppCompatActivity() {
     private fun loadUrl() {
         var url = urlInput.text.toString().trim()
         if (url.isEmpty()) return
+        // "local" ou "local:URL_DO_SWF" abre a pagina propria com Ruffle + ponte de socket.
+        if (url.startsWith("local", ignoreCase = true)) {
+            loadLocalHost(url.substringAfter(":", "").trim())
+            return
+        }
         if (!url.startsWith("http")) url = "https://$url"
         if (!running) setStatus("Carregando…", R.color.warn)
         webView.loadUrl(url)
+    }
+
+    private fun loadLocalHost(swf: String) {
+        try {
+            val b = bridge ?: WsTcpBridge { msg ->
+                handler.post {
+                    val esc = org.json.JSONObject.quote(msg)
+                    webView.evaluateJavascript("window.hostLog&&hostLog($esc)", null)
+                }
+            }.also { it.start(); bridge = it }
+            val u = Uri.Builder().scheme("https").authority(LOCAL_HOST).path("/host.html")
+                .appendQueryParameter("port", b.port.toString())
+                .appendQueryParameter("token", b.token)
+            if (swf.isNotEmpty()) u.appendQueryParameter("swf", swf)
+            setStatus("Página local (Ruffle + ponte)", R.color.warn)
+            webView.loadUrl(u.build().toString())
+        } catch (e: Exception) {
+            setStatus("Ponte falhou: ${e.message}", R.color.bad)
+        }
+    }
+
+    // Serve host.html dos assets e faz proxy de https://appassets.local/p/HOST/CAMINHO -> https://HOST/CAMINHO (com CORS liberado).
+    private fun interceptLocal(request: WebResourceRequest): WebResourceResponse? {
+        val uri = request.url
+        if (uri.host != LOCAL_HOST) return null
+        val path = uri.encodedPath ?: return null
+        try {
+            if (path == "/host.html") {
+                return WebResourceResponse("text/html", "utf-8", assets.open("host.html"))
+            }
+            if (path.startsWith("/p/") && request.method == "GET") {
+                val rest = path.removePrefix("/p/")
+                val target = "https://" + rest + (uri.encodedQuery?.let { "?$it" } ?: "")
+                val c = URL(target).openConnection() as HttpURLConnection
+                c.connectTimeout = 15000
+                c.readTimeout = 30000
+                c.setRequestProperty("User-Agent", DESKTOP_UA)
+                val code = c.responseCode
+                val stream = if (code >= 400) c.errorStream else c.inputStream
+                val mime = (c.contentType ?: "application/octet-stream").substringBefore(";").trim()
+                val headers = mapOf("Access-Control-Allow-Origin" to "*")
+                return WebResourceResponse(mime, "utf-8", code, "OK", headers, stream)
+            }
+        } catch (e: Exception) {
+            return WebResourceResponse("text/plain", "utf-8", 502, "Bad Gateway", mapOf("Access-Control-Allow-Origin" to "*"),
+                java.io.ByteArrayInputStream((e.message ?: "erro").toByteArray()))
+        }
+        return null
     }
 
     private fun checkRuffle() {
@@ -256,11 +319,13 @@ class MainActivity : AppCompatActivity() {
         running = false
         handler.removeCallbacksAndMessages(null)
         pulse?.cancel()
+        bridge?.stop()
         webView.destroy()
         super.onDestroy()
     }
 
     companion object {
+        private const val LOCAL_HOST = "appassets.local"
         private const val DESKTOP_UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/124.0.0.0 Safari/537.36"

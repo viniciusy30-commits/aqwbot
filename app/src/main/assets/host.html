@@ -1,0 +1,71 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AQW host</title>
+<style>
+html,body{margin:0;height:100%;background:#111;color:#ddd;font:12px monospace}
+#bar{padding:4px;display:flex;gap:4px;flex-wrap:wrap;background:#1c1c24}
+#bar input{flex:1;min-width:140px;background:#000;color:#ddd;border:1px solid #444;padding:4px}
+#bar button{padding:4px 8px}
+#game{width:100%;height:60vh;background:#000}
+#game ruffle-player{width:100%;height:100%}
+#log{height:calc(40vh - 40px);overflow:auto;white-space:pre-wrap;padding:4px;border-top:1px solid #444}
+.e{color:#f77}.w{color:#fd5}
+</style></head><body>
+<div id="bar">
+ <input id="swf" placeholder="URL do SWF (https://...)">
+ <input id="sock" placeholder="sockets host:porta, separados por virgula">
+ <button id="go">Carregar</button>
+ <button id="fn">Funções</button>
+</div>
+<div id="game"></div>
+<div id="log"></div>
+<script>
+var q=new URLSearchParams(location.search);
+var PORT=q.get('port'),TOKEN=q.get('token');
+var logEl=document.getElementById('log');
+function hostLog(m,c){var d=document.createElement('div');if(c)d.className=c;d.textContent=m;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;}
+['log','info','warn','error'].forEach(function(k){var o=console[k];console[k]=function(){try{hostLog('['+k+'] '+Array.prototype.slice.call(arguments).join(' '),k=='error'?'e':k=='warn'?'w':'');}catch(e){}o.apply(console,arguments);};});
+window.addEventListener('error',function(e){hostLog('ERRO: '+e.message,'e');});
+window.addEventListener('unhandledrejection',function(e){hostLog('PROMISE: '+e.reason,'e');});
+function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v);}catch(e){return null;}}
+var DEF_SWF='https://game.aq.com/game/gamefiles/Loader.swf';
+document.getElementById('swf').value=q.get('swf')||ls('swf')||DEF_SWF;
+document.getElementById('sock').value=ls('sock')||'';
+// https://host/path -> /p/host/path (passa pelo proxy do app, que libera CORS e mantem caminhos relativos)
+function viaProxy(u){var x=new URL(u);return location.origin+'/p/'+x.host+x.pathname+x.search;}
+var player=null;
+function proxies(){
+  return document.getElementById('sock').value.split(',').map(function(s){return s.trim();}).filter(Boolean).map(function(hp){
+    var i=hp.lastIndexOf(':');
+    return {host:hp.substring(0,i),port:parseInt(hp.substring(i+1),10),proxyUrl:'ws://127.0.0.1:'+PORT+'/'+TOKEN+'/'+hp};
+  });
+}
+function loadGame(){
+  var swf=document.getElementById('swf').value.trim();
+  ls('swf',swf);ls('sock',document.getElementById('sock').value);
+  if(!window.RufflePlayer){hostLog('Ruffle ainda nao carregou','e');return;}
+  var g=document.getElementById('game');g.innerHTML='';
+  var r=window.RufflePlayer.newest();player=r.createPlayer();g.appendChild(player);
+  var url=/^https?:/.test(swf)?viaProxy(swf):swf;
+  var sp=proxies();
+  hostLog('carregando '+url+' | sockets: '+JSON.stringify(sp.map(function(s){return s.host+':'+s.port;})));
+  player.load({url:url,autoplay:'on',unmuteOverlay:'hidden',allowScriptAccess:true,logLevel:'info',socketProxy:sp,
+    parameters:{}}).then(function(){hostLog('SWF aceito pelo Ruffle');setTimeout(listFns,6000);}).catch(function(e){hostLog('falha no load: '+e,'e');});
+}
+function listFns(){
+  if(!player){hostLog('sem player','w');return;}
+  var out=[];
+  for(var k in player){try{if(typeof player[k]==='function'&&!(k in HTMLElement.prototype)&&!(k in Element.prototype))out.push(k);}catch(e){}}
+  hostLog('Funcoes expostas no player ('+out.length+'): '+out.join(', '));
+}
+document.getElementById('go').onclick=loadGame;
+document.getElementById('fn').onclick=listFns;
+window.RufflePlayer=window.RufflePlayer||{};
+window.RufflePlayer.config={polyfills:false,autoplay:'on',unmuteOverlay:'hidden',logLevel:'info'};
+var s=document.createElement('script');s.src='https://unpkg.com/@ruffle-rs/ruffle';
+s.onload=function(){hostLog('Ruffle carregado');loadGame();};
+s.onerror=function(){hostLog('Ruffle NAO carregou (sem internet?)','e');};
+document.head.appendChild(s);
+hostLog('ponte local porta='+PORT);
+</script></body></html>
