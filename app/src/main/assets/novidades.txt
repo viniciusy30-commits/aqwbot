@@ -1,0 +1,6 @@
+#id 2026-11-11-a
+#titulo Primeira versão
+- App abre o AQW numa WebView e carrega o Ruffle (emulador de Flash)
+- Botões Iniciar, Parar e Testar apertam as teclas que você configurar
+- Linha de status mostra se o Ruffle carregou e achou o jogo
+- Atualização pelo próprio app: Configurações > Verificar atualização
