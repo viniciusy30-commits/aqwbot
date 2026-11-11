@@ -139,14 +139,22 @@ add_method('aqwDescribe',1,A.build())
 A=M(0,1)
 A.op('getlocal_0');A.op('pushscope');A.op('pushstring',S('aqw1'));A.op('returnvalue')
 add_method('aqwPing',0,A.build())
-# aqwInstall(): registra os callbacks
+# aqwInstall(): registra os callbacks (com trace de diagnostico)
+TR=q('trace')
+def tr(A,txt):
+    A.op('findpropstrict',TR);A.op('pushstring',S(txt));A.op('callpropvoid',TR,1)
 A=M(0,1)
 A.op('getlocal_0');A.op('pushscope')
 A.L('S')
+tr(A,'AQWMOD install start')
 for nm in ('aqwGet','aqwSet','aqwCall','aqwKeys','aqwDescribe','aqwPing'):
     A.op('getlex',EI);A.op('pushstring',S(nm));A.op('getlocal_0');A.op('getproperty',q(nm));A.op('callpropvoid',ADDCB,2)
+tr(A,'AQWMOD install ok')
 A.op('returnvoid')
-A.L('T'); A.L('E'); A.op('returnvoid'); A.try_('S','T','E')
+A.L('T'); A.L('E')
+A.op('findpropstrict',TR);A.op('swap');A.op('pushstring',S('AQWMOD install erro:'));A.op('swap');A.op('add')
+A.op('callpropvoid',TR,1)
+A.op('returnvoid'); A.try_('S','T','E')
 add_method('aqwInstall',0,A.build())
 # acrescenta traits de metodo na classe Game
 for name,idx in new:
@@ -154,7 +162,11 @@ for name,idx in new:
 # gancho: no inicio de Game.onAddedToStage
 mnb=__import__('swf').w30(q('aqwInstall'))
 k=3+len(mnb)
-pre=bytes([0xD0,0x4F])+mnb+bytes([0, 0x10,1,0,0, 0x29])
+w30_=__import__('swf').w30
+mnb=w30_(q('aqwInstall')); mt=w30_(TR)
+k=3+len(mnb)
+handler=bytes([0x5D])+mt+bytes([0x2B,0x2C])+w30_(S('AQWMOD hook erro:'))+bytes([0x2B,0xA0,0x4F])+mt+bytes([1])
+pre=bytes([0xD0,0x4F])+mnb+bytes([0, 0x10])+(len(handler)).to_bytes(3,'little')+handler
 hb['code']=pre+hb['code']
 hb['exc']=[(0,k,k+4,0,0)]
 hb['maxstack']=max(hb['maxstack'],2)

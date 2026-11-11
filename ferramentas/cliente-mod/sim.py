@@ -81,6 +81,7 @@ def run(name,*args,this=None):
                 elif nm=='push': o.append(args_[0])
                 elif nm=='apply': r=o(*(args_[1] or [])) if callable(o) else None
                 elif nm=='addCallback': o.addCallback(args_[0],args_[1])
+                elif nm=='trace': print('TRACE',args_[0])
                 elif nm=='describeType': r='<type/>'
                 elif nm=='toXMLString': r=o
                 elif nm.startswith('aqw'): r=run(nm,*args_,this=o)
