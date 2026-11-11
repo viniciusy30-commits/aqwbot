@@ -30,7 +30,7 @@ function hostLog(m,c){var d=document.createElement('div');if(c)d.className=c;d.t
 window.addEventListener('error',function(e){hostLog('ERRO: '+e.message,'e');});
 window.addEventListener('unhandledrejection',function(e){hostLog('PROMISE: '+e.reason,'e');});
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v);}catch(e){return null;}}
-var DEF_SWF='http://aqworldscdn.aq.com/game/gamefiles/Loader.swf';
+var DEF_SWF='https://game.aq.com/game/gamefiles/Loader4.swf?ver=a';
 document.getElementById('swf').value=q.get('swf')||DEF_SWF;
 document.getElementById('sock').value=ls('sock')||'';
 // https://host/path -> /p/host/path (passa pelo proxy do app, que libera CORS e mantem caminhos relativos)
@@ -52,7 +52,7 @@ function loadGame(){
   var sp=proxies();
   hostLog('carregando '+url+' | sockets: '+JSON.stringify(sp.map(function(s){return s.host+':'+s.port;})));
   player.load({url:url,autoplay:'on',unmuteOverlay:'hidden',allowScriptAccess:true,logLevel:'info',socketProxy:sp,
-    parameters:{}}).then(function(){hostLog('SWF aceito pelo Ruffle');setTimeout(listFns,6000);}).catch(function(e){hostLog('falha no load: '+e,'e');});
+    parameters:{sLang:'',isweb:'true'}}).then(function(){hostLog('SWF aceito pelo Ruffle');setTimeout(listFns,6000);}).catch(function(e){hostLog('falha no load: '+e,'e');});
 }
 function listFns(){
   if(!player){hostLog('sem player','w');return;}
@@ -61,12 +61,12 @@ function listFns(){
   hostLog('Funcoes expostas no player ('+out.length+'): '+out.join(', '));
 }
 function discover(){
-  var cands=['http://aqworldscdn.aq.com/game/gamefiles/Loader.swf','https://aqworldscdn.aq.com/game/gamefiles/Loader.swf','https://game.aq.com/game/gamefiles/Loader.swf','https://game.aq.com/game/Loader.swf'];
+  var cands=['https://game.aq.com/game/gamefiles/Loader4.swf?ver=a'];
   cands.forEach(function(u){fetch(viaProxy(u)).then(function(r){hostLog('TESTE '+u+' -> '+r.status+' '+(r.headers.get('content-type')||''),r.ok?'':'w');}).catch(function(e){hostLog('TESTE '+u+' -> erro '+e,'e');});});
   fetch(viaProxy('https://game.aq.com/game/')).then(function(r){return r.text();}).then(function(t){
     var m=t.match(/[\w\/.:\-]*\.(swf|js)[\w?=&.\-]*/gi)||[];var u={};m.forEach(function(x){u[x]=1;});
     hostLog('Referencias na pagina do jogo ('+Object.keys(u).length+'): '+Object.keys(u).join(' | '));
-    var f=t.match(/flashvars[^;]{0,400}/i);if(f)hostLog('flashvars: '+f[0]);
+    var i=t.search(/embedSWF|swfobject\.embed/i);if(i>=0)hostLog('EMBED: '+t.substring(Math.max(0,i-300),i+900).replace(/\s+/g,' '));var f=t.match(/flashvars[^;]{0,200}/i);if(f)hostLog('flashvars: '+f[0].replace(/\s+/g,' '));
   }).catch(function(e){hostLog('pagina do jogo: erro '+e,'e');});
 }
 document.getElementById('dsc').onclick=discover;
