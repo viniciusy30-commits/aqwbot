@@ -1,3 +1,13 @@
+#id 2026-11-11-e
+#titulo Resolução automática
+- Nova opção Resolução automática (padrão): o app mede a fluidez do celular e baixa a resolução sozinho quando o jogo engasga, subindo de volta quando folga
+- Um medidor pequeno no canto mostra a fluidez e a resolução atual
+
+#id 2026-11-11-d
+#titulo Resolução ajustável para mais fluidez
+- Seletor de resolução (100%, 75%, 50%, 35%): o jogo desenha menos pixels e a tela é ampliada. Quanto menor, mais leve com muita gente na tela, mas mais borrado. Troca na hora, sem recarregar
+- Dica: no próprio jogo, use as opções de esconder jogadores e qualidade baixa
+
 #id 2026-11-11-c
 #titulo 30 FPS experimental
 - Caixa "30 FPS (experimental)" na página do jogo: o app troca a taxa do jogo de 24 para 30. O jogo fica cerca de 25% mais rápido; desmarque e toque em Recarregar para voltar ao normal

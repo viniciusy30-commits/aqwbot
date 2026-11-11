@@ -11,9 +11,11 @@ input,select{background:#000;color:#ddd;border:1px solid #444;padding:4px}
 #adv input{flex:1;min-width:140px}
 button{padding:5px 9px}
 #game{flex:1;min-height:0;background:#000;position:relative}
+#wrap{position:absolute;left:0;top:0;transform-origin:0 0}
 #game ruffle-player{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 #log{display:none;height:30vh;overflow:auto;white-space:pre-wrap;padding:4px;border-top:1px solid #444;background:#111}
 .e{color:#f77}.w{color:#fd5}
+#meter{position:fixed;left:6px;bottom:4px;z-index:9;opacity:.6;font:11px monospace;color:#8f8;background:#0008;padding:2px 5px;border-radius:4px;pointer-events:none}
 #sair{display:none;position:fixed;top:6px;right:6px;z-index:9;opacity:.45;padding:6px 10px}
 body.fs #bar,body.fs #adv,body.fs #log{display:none!important}
 body.fs #sair{display:block}
@@ -25,6 +27,7 @@ body.fs #sair{display:block}
   <option value="medium">Qualidade média</option>
   <option value="high">Qualidade alta</option>
  </select>
+ <select id="res" title="Resolução"><option value="auto">Resolução automática (recomendado)</option><option value="1">Resolução 100%</option><option value="0.75">Resolução 75%</option><option value="0.5">Resolução 50% (mais leve)</option><option value="0.35">Resolução 35% (bem leve)</option></select>
  <label><input type="checkbox" id="f30"> 30 FPS (experimental)</label>
  <button id="go">Recarregar</button>
  <button id="dg">Diagnóstico</button>
@@ -35,8 +38,9 @@ body.fs #sair{display:block}
  <button id="fn">Funções</button>
  <button id="dsc">Descobrir</button>
 </div>
-<div id="game"></div>
+<div id="game"><div id="wrap"></div></div>
 <div id="log"></div>
+<div id="meter"></div>
 <button id="sair">✕ Sair da tela cheia</button>
 <script>
 var q=new URLSearchParams(location.search);
@@ -60,6 +64,29 @@ $('swf').value=q.get('swf')||DEF_SWF;
 $('sock').value=ls('sock')||'';
 $('q').value=ls('quality')||'low';
 $('f30').checked=ls('f30')==='1';
+$('res').value=ls('res')||'auto';
+var STEPS=[1,0.85,0.7,0.55,0.4,0.3],stepI=1,lastDrop=0;
+function curRes(){var v=$('res').value;return v==='auto'?STEPS[stepI]:(parseFloat(v)||1);}
+function applyRes(){var r=curRes(),w=$('wrap');ls('res',$('res').value);w.style.width=(r*100)+'%';w.style.height=(r*100)+'%';w.style.transform='scale('+(1/r)+')';}
+applyRes();$('res').onchange=function(){applyRes();};
+// Medidor + resolucao automatica: se o celular engasga (poucos quadros/s), baixa a resolucao; se folga por um bom tempo, sobe.
+(function(){
+  var n=0,t0=performance.now(),good=0;
+  function tick(){
+    n++;var t=performance.now();
+    if(t-t0>=1000){
+      var fps=Math.round(n*1000/(t-t0));n=0;t0=t;
+      $('meter').textContent='fluidez '+fps+'/s | res '+Math.round(curRes()*100)+'%';
+      if($('res').value==='auto'&&player){
+        if(fps<28&&stepI<STEPS.length-1){stepI++;lastDrop=t;good=0;applyRes();hostLog('auto: baixei a resolucao para '+Math.round(STEPS[stepI]*100)+'%');}
+        else if(fps>=57){good++;if(good>=15&&stepI>0&&t-lastDrop>30000){stepI--;good=0;applyRes();hostLog('auto: subi a resolucao para '+Math.round(STEPS[stepI]*100)+'%');}}
+        else good=0;
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
 function viaProxy(u){var x=new URL(u);return location.origin+(x.protocol==='http:'?'/ph/':'/p/')+x.host+x.pathname+x.search;}
 var player=null;
 (function(){
@@ -97,7 +124,7 @@ function loadGame(){
   var swf=$('swf').value.trim();
   ls('swf',swf);ls('sock',$('sock').value);ls('quality',$('q').value);ls('f30',$('f30').checked?'1':'0');
   if(!window.RufflePlayer){hostLog('Ruffle ainda não carregou','e');return;}
-  var g=$('game');g.innerHTML='';
+  var g=$('wrap');g.innerHTML='';applyRes();
   player=window.RufflePlayer.newest().createPlayer();g.appendChild(player);
   var url=/^https?:/.test(swf)?viaProxy(swf):swf;
   if($('f30').checked)url+=(url.indexOf('?')<0?'?':'&')+'aqwfps=30';
