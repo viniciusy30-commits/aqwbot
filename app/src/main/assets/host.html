@@ -60,8 +60,14 @@ var player=null;
     return of.apply(this,arguments);
   };
 })();
+function defaultSocks(){
+  var l=[],i,p;
+  for(i=1;i<=40;i++)for(p=5588;p<=5592;p++)l.push('sock'+i+'.aq.com:'+p);
+  return l.join(',');
+}
 function proxies(){
-  return document.getElementById('sock').value.split(',').map(function(s){return s.trim();}).filter(Boolean).map(function(hp){
+  var typed=document.getElementById('sock').value.trim();
+  return (typed?typed+','+defaultSocks():defaultSocks()).split(',').map(function(s){return s.trim();}).filter(Boolean).map(function(hp){
     var i=hp.lastIndexOf(':');
     return {host:hp.substring(0,i),port:parseInt(hp.substring(i+1),10),proxyUrl:'ws://127.0.0.1:'+PORT+'/'+TOKEN+'/'+hp};
   });
@@ -74,7 +80,7 @@ function loadGame(){
   var r=window.RufflePlayer.newest();player=r.createPlayer();g.appendChild(player);
   var url=/^https?:/.test(swf)?viaProxy(swf):swf;
   var sp=proxies();
-  hostLog('carregando '+url+' | sockets: '+JSON.stringify(sp.map(function(s){return s.host+':'+s.port;})));
+  hostLog('carregando '+url+' | '+sp.length+' sockets liberados (sock1..40.aq.com portas 5588-5592 + os digitados)');
   player.load({url:url,autoplay:'on',unmuteOverlay:'hidden',allowScriptAccess:true,logLevel:'info',socketProxy:sp,
     parameters:{sLang:'',isweb:'true'}}).then(function(){hostLog('SWF aceito pelo Ruffle');setTimeout(listFns,6000);}).catch(function(e){hostLog('falha no load: '+e,'e');});
 }
