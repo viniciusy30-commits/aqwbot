@@ -202,7 +202,15 @@ class MainActivity : AppCompatActivity() {
                     val esc = org.json.JSONObject.quote(msg)
                     webView.evaluateJavascript("window.hostLog&&hostLog($esc)", null)
                 }
-            }.also { it.start(); bridge = it }
+            }.also {
+                it.setPacketListener(WsTcpBridge.PacketListener { toServer, data, n ->
+                    if (capture) {
+                        val txt = String(data, 0, n, Charsets.UTF_8).replace('\u0000', '\n').trim()
+                        if (txt.isNotEmpty()) jsLog((if (toServer) ">> " else "<< ") + txt.take(400))
+                    }
+                })
+                it.start(); bridge = it
+            }
             val u = Uri.Builder().scheme("https").authority(LOCAL_HOST).path("/host.html")
                 .appendQueryParameter("port", b.port.toString())
                 .appendQueryParameter("token", b.token)
@@ -242,9 +250,12 @@ class MainActivity : AppCompatActivity() {
                 val stream = if (code >= 400) c.errorStream else c.inputStream
                 val mime = (c.contentType ?: "application/octet-stream").substringBefore(";").trim()
                 val headers = mapOf("Access-Control-Allow-Origin" to "*")
-                if (fps > 0 && code < 400 && stream != null) {
-                    val patched = patchSwfFps(stream.use { it.readBytes() }, fps)
-                    return WebResourceResponse(mime, "utf-8", code, "OK", headers, java.io.ByteArrayInputStream(patched))
+                val isSwf = path.endsWith(".swf", ignoreCase = true)
+                if ((fps > 0 || isSwf) && code < 400 && stream != null) {
+                    var b = stream.use { it.readBytes() }
+                    if (isSwf) saveSwf(rest, b)
+                    if (fps > 0) b = patchSwfFps(b, fps)
+                    return WebResourceResponse(mime, "utf-8", code, "OK", headers, java.io.ByteArrayInputStream(b))
                 }
                 return WebResourceResponse(mime, "utf-8", code, "OK", headers, stream)
             }
@@ -253,6 +264,51 @@ class MainActivity : AppCompatActivity() {
                 java.io.ByteArrayInputStream((e.message ?: "erro").toByteArray()))
         }
         return null
+    }
+
+    // Guarda uma copia dos SWFs principais (direto em .../gamefiles/) para exportar e analisar.
+    private fun saveSwf(rest: String, bytes: ByteArray) {
+        try {
+            val i = rest.indexOf("/gamefiles/")
+            if (i < 0) return
+            val name = rest.substring(i + "/gamefiles/".length)
+            if (name.isEmpty() || name.contains("/")) return
+            val dir = java.io.File(filesDir, "swf")
+            dir.mkdirs()
+            java.io.File(dir, name).writeBytes(bytes)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun exportSwfs() {
+        try {
+            val dir = java.io.File(filesDir, "swf")
+            val files = dir.listFiles()?.filter { it.isFile } ?: emptyList()
+            if (files.isEmpty()) {
+                toast("Nenhum arquivo salvo ainda: entre no jogo primeiro")
+                return
+            }
+            val outDir = java.io.File(cacheDir, "updates")
+            outDir.mkdirs()
+            val zip = java.io.File(outDir, "aqw-arquivos-do-jogo.zip")
+            java.util.zip.ZipOutputStream(zip.outputStream()).use { z ->
+                files.forEach { f ->
+                    z.putNextEntry(java.util.zip.ZipEntry(f.name))
+                    f.inputStream().use { it.copyTo(z) }
+                    z.closeEntry()
+                }
+            }
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, packageName + ".fileprovider", zip)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "application/zip"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(send, "Enviar arquivos do jogo"))
+            jsLog("exportados " + files.size + " arquivos: " + files.joinToString { it.name + " (" + it.length() / 1024 + " KB)" })
+        } catch (e: Exception) {
+            toast("Falha ao exportar: " + e.message)
+        }
     }
 
     private fun jsLog(msg: String) {
@@ -304,6 +360,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     @Volatile private var localLoaded = false
+    @Volatile private var capture = false
     private var fullscreen = false
     private var origPad = intArrayOf(0, 0, 0, 0)
 
@@ -336,6 +393,16 @@ class MainActivity : AppCompatActivity() {
 
     // Ponte JS -> app para POST (o Android nao entrega o corpo do POST ao proxy normal).
     inner class Native {
+        @android.webkit.JavascriptInterface
+        fun exportFiles() {
+            if (localLoaded) runOnUiThread { exportSwfs() }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun capture(on: Boolean) {
+            if (localLoaded) capture = on
+        }
+
         @android.webkit.JavascriptInterface
         fun fullscreen(on: Boolean) {
             if (!localLoaded) return

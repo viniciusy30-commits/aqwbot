@@ -37,6 +37,8 @@ body.fs #sair{display:block}
  <input id="swf" placeholder="URL do SWF (https://...)">
  <input id="sock" placeholder="sockets extras host:porta, separados por vírgula">
  <button id="fn">Funções</button>
+ <button id="exp">Exportar arquivos do jogo</button>
+ <button id="cap">Capturar pacotes: OFF</button>
  <button id="dsc">Descobrir</button>
 </div>
 <div id="game"><div id="wrap"></div></div>
@@ -99,6 +101,7 @@ var player=null;
     try{
       var isReq=(typeof Request!=='undefined')&&input instanceof Request;
       var url=isReq?input.url:String(input);
+      try{var ux=new URL(url);if(/(^|\.)aq\.com$/.test(ux.hostname)&&ux.origin!==location.origin){var pu=viaProxy(url);if(isReq){input=new Request(pu,input);isReq=true;}else{input=pu;}url=pu;}}catch(e){}
       var method=((init&&init.method)||(isReq&&input.method)||'GET').toUpperCase();
       if(method==='POST'&&window.AqwNative&&(url.indexOf(location.origin+'/p/')===0||url.indexOf(location.origin+'/ph/')===0)){
         var src=isReq?input.clone():null;
@@ -111,10 +114,10 @@ var player=null;
         });
       }
     }catch(e){hostLog('fetch hook: '+e,'e');}
-    return of.apply(this,arguments);
+    return of.call(this,input,init);
   };
 })();
-function defaultSocks(){var l=[],i,p;for(i=1;i<=40;i++)for(p=5588;p<=5592;p++)l.push('sock'+i+'.aq.com:'+p);return l.join(',');}
+function defaultSocks(){var l=[],i,p;for(i=1;i<=40;i++)for(p=5588;p<=5600;p++)l.push('sock'+i+'.aq.com:'+p);return l.join(',');}
 function proxies(){
   var typed=$('sock').value.trim();
   return (typed?typed+','+defaultSocks():defaultSocks()).split(',').map(function(s){return s.trim();}).filter(Boolean).map(function(hp){
@@ -133,7 +136,7 @@ function loadGame(){
   hostLog('carregando '+url+' (qualidade '+$('q').value+')');
   player.load({url:url,autoplay:'on',unmuteOverlay:'hidden',allowScriptAccess:true,logLevel:'warn',
     quality:$('q').value,scale:'showAll',letterbox:'on',contextMenu:'off',showSwfDownload:false,
-    splashScreen:false,preferredRenderer:$('rend').value,maxExecutionDuration:{secs:60,nanos:0},
+    splashScreen:false,preferredRenderer:$('rend').value,maxExecutionDuration:60,
     socketProxy:proxies(),parameters:{sLang:'',isweb:'true'}})
    .then(function(){hostLog('Jogo aceito pelo Ruffle');}).catch(function(e){hostLog('falha ao carregar: '+e,'e');});
 }
@@ -154,6 +157,9 @@ $('fs').onclick=function(){setFs(true);};
 $('sair').onclick=function(){setFs(false);};
 $('go').onclick=loadGame;
 $('fn').onclick=listFns;
+$('exp').onclick=function(){try{window.AqwNative.exportFiles();}catch(e){hostLog('exportar: '+e,'e');}};
+var capOn=false;
+$('cap').onclick=function(){capOn=!capOn;try{window.AqwNative.capture(capOn);}catch(e){}$('cap').textContent='Capturar pacotes: '+(capOn?'ON':'OFF');hostLog(capOn?'captura ligada (>> enviado, << recebido)':'captura desligada');};
 $('dsc').onclick=discover;
 $('dg').onclick=function(){
   logOn=!logOn;

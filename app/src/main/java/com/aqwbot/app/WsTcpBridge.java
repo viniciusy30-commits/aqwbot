@@ -28,6 +28,16 @@ public class WsTcpBridge {
         void log(String msg);
     }
 
+    public interface PacketListener {
+        void onData(boolean toServer, byte[] data, int n);
+    }
+
+    private volatile PacketListener packetListener;
+
+    public void setPacketListener(PacketListener l) {
+        this.packetListener = l;
+    }
+
     private static final String GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     private static final int MAX_FRAME = 16 * 1024 * 1024;
 
@@ -162,6 +172,8 @@ public class WsTcpBridge {
                         while (true) {
                             int n = tin.read(buf);
                             if (n < 0) break;
+                            PacketListener pl = packetListener;
+                            if (pl != null) pl.onData(false, buf, n);
                             sendFrame(out, 0x2, buf, n);
                         }
                     } catch (IOException ignored) {
@@ -197,6 +209,8 @@ public class WsTcpBridge {
                     for (int i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
                 }
                 if (op == 0x0 || op == 0x1 || op == 0x2) {
+                    PacketListener pl2 = packetListener;
+                    if (pl2 != null) pl2.onData(true, payload, payload.length);
                     tout.write(payload);
                     tout.flush();
                 } else if (op == 0x8) {

@@ -1,3 +1,12 @@
+#id 2026-11-11-g
+#titulo Exportar arquivos do jogo
+- No Diagnóstico, o botão Exportar arquivos do jogo junta os arquivos principais do jogo num ZIP e abre o compartilhamento do celular (usado para analisar o cliente)
+
+#id 2026-11-11-f
+#titulo Captura de pacotes e correções
+- Botão Capturar pacotes no Diagnóstico: mostra o que o jogo envia (>>) e recebe (<<) do servidor, base para o bot
+- Portas de servidor liberadas até 5600 e pedidos para www.aq.com passam pelo proxy do app (corrige o erro das missões)
+
 #id 2026-11-11-e
 #titulo Resolução automática
 - Nova opção Resolução automática (padrão): o app mede a fluidez do celular e baixa a resolução sozinho quando o jogo engasga, subindo de volta quando folga
