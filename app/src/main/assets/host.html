@@ -27,6 +27,7 @@ body.fs #sair{display:block}
   <option value="medium">Qualidade média</option>
   <option value="high">Qualidade alta</option>
  </select>
+ <select id="rend" title="Renderizador"><option value="wgpu-webgl">Renderizador: padrão</option><option value="webgpu">Renderizador: WebGPU (Vulkan)</option><option value="webgl">Renderizador: WebGL (OpenGL)</option><option value="canvas">Renderizador: Canvas</option></select>
  <select id="res" title="Resolução"><option value="auto">Resolução automática (recomendado)</option><option value="1">Resolução 100%</option><option value="0.75">Resolução 75%</option><option value="0.5">Resolução 50% (mais leve)</option><option value="0.35">Resolução 35% (bem leve)</option></select>
  <label><input type="checkbox" id="f30"> 30 FPS (experimental)</label>
  <button id="go">Recarregar</button>
@@ -64,10 +65,11 @@ $('swf').value=q.get('swf')||DEF_SWF;
 $('sock').value=ls('sock')||'';
 $('q').value=ls('quality')||'low';
 $('f30').checked=ls('f30')==='1';
-$('res').value=ls('res')||'auto';
+$('rend').value=ls('rend')||'wgpu-webgl';
+$('res').value=ls('res2')||'1';
 var STEPS=[1,0.85,0.7,0.55,0.4,0.3],stepI=1,lastDrop=0;
 function curRes(){var v=$('res').value;return v==='auto'?STEPS[stepI]:(parseFloat(v)||1);}
-function applyRes(){var r=curRes(),w=$('wrap');ls('res',$('res').value);w.style.width=(r*100)+'%';w.style.height=(r*100)+'%';w.style.transform='scale('+(1/r)+')';}
+function applyRes(){var r=curRes(),w=$('wrap');ls('res2',$('res').value);w.style.width=(r*100)+'%';w.style.height=(r*100)+'%';w.style.transform='scale('+(1/r)+')';}
 applyRes();$('res').onchange=function(){applyRes();};
 // Medidor + resolucao automatica: se o celular engasga (poucos quadros/s), baixa a resolucao; se folga por um bom tempo, sobe.
 (function(){
@@ -122,7 +124,7 @@ function proxies(){
 }
 function loadGame(){
   var swf=$('swf').value.trim();
-  ls('swf',swf);ls('sock',$('sock').value);ls('quality',$('q').value);ls('f30',$('f30').checked?'1':'0');
+  ls('swf',swf);ls('sock',$('sock').value);ls('quality',$('q').value);ls('rend',$('rend').value);ls('f30',$('f30').checked?'1':'0');
   if(!window.RufflePlayer){hostLog('Ruffle ainda não carregou','e');return;}
   var g=$('wrap');g.innerHTML='';applyRes();
   player=window.RufflePlayer.newest().createPlayer();g.appendChild(player);
@@ -131,7 +133,7 @@ function loadGame(){
   hostLog('carregando '+url+' (qualidade '+$('q').value+')');
   player.load({url:url,autoplay:'on',unmuteOverlay:'hidden',allowScriptAccess:true,logLevel:'warn',
     quality:$('q').value,scale:'showAll',letterbox:'on',contextMenu:'off',showSwfDownload:false,
-    splashScreen:false,preferredRenderer:'wgpu-webgl',maxExecutionDuration:{secs:60,nanos:0},
+    splashScreen:false,preferredRenderer:$('rend').value,maxExecutionDuration:{secs:60,nanos:0},
     socketProxy:proxies(),parameters:{sLang:'',isweb:'true'}})
    .then(function(){hostLog('Jogo aceito pelo Ruffle');}).catch(function(e){hostLog('falha ao carregar: '+e,'e');});
 }
