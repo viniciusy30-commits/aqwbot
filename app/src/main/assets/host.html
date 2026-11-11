@@ -1,42 +1,65 @@
 <!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AQW host</title>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>AQW</title>
 <style>
-html,body{margin:0;height:100%;background:#111;color:#ddd;font:12px monospace}
-#bar{padding:4px;display:flex;gap:4px;flex-wrap:wrap;background:#1c1c24}
-#bar input{flex:1;min-width:140px;background:#000;color:#ddd;border:1px solid #444;padding:4px}
-#bar button{padding:4px 8px}
-#game{width:100%;height:60vh;background:#000}
-#game ruffle-player{width:100%;height:100%}
-#log{height:calc(40vh - 40px);overflow:auto;white-space:pre-wrap;padding:4px;border-top:1px solid #444}
+html,body{margin:0;height:100%;background:#000;color:#ddd;font:12px monospace;overflow:hidden}
+body{display:flex;flex-direction:column}
+#bar,#adv{padding:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;background:#1c1c24}
+#adv{display:none}
+input,select{background:#000;color:#ddd;border:1px solid #444;padding:4px}
+#adv input{flex:1;min-width:140px}
+button{padding:5px 9px}
+#game{flex:1;min-height:0;background:#000;position:relative}
+#game ruffle-player{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#log{display:none;height:30vh;overflow:auto;white-space:pre-wrap;padding:4px;border-top:1px solid #444;background:#111}
 .e{color:#f77}.w{color:#fd5}
+#sair{display:none;position:fixed;top:6px;right:6px;z-index:9;opacity:.45;padding:6px 10px}
+body.fs #bar,body.fs #adv,body.fs #log{display:none!important}
+body.fs #sair{display:block}
 </style></head><body>
 <div id="bar">
+ <button id="fs">Tela cheia</button>
+ <select id="q" title="Qualidade">
+  <option value="low">Qualidade baixa (mais FPS)</option>
+  <option value="medium">Qualidade média</option>
+  <option value="high">Qualidade alta</option>
+ </select>
+ <button id="go">Recarregar</button>
+ <button id="dg">Diagnóstico</button>
+</div>
+<div id="adv">
  <input id="swf" placeholder="URL do SWF (https://...)">
- <input id="sock" placeholder="sockets host:porta, separados por virgula">
- <button id="go">Carregar</button>
+ <input id="sock" placeholder="sockets extras host:porta, separados por vírgula">
  <button id="fn">Funções</button>
  <button id="dsc">Descobrir</button>
 </div>
 <div id="game"></div>
 <div id="log"></div>
+<button id="sair">✕ Sair da tela cheia</button>
 <script>
 var q=new URLSearchParams(location.search);
 var PORT=q.get('port'),TOKEN=q.get('token');
-var logEl=document.getElementById('log');
-function hostLog(m,c){var d=document.createElement('div');if(c)d.className=c;d.textContent=m;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;}
+var logEl=document.getElementById('log'),logOn=false,buf=[];
+var NOISE=/focus_tracker|stub\.rs|library\.rs|Unknown device font|Focus is now/;
+function hostLog(m,c){
+  if(NOISE.test(m))return;
+  m=String(m).replace(/%c/g,'').replace(/ color: [^ ]+; background: #444 color: gray; font-style: italic color: inherit/g,'');
+  buf.push([m,c]);if(buf.length>300)buf.shift();
+  if(logOn)draw(m,c);
+}
+function draw(m,c){var d=document.createElement('div');if(c)d.className=c;d.textContent=m;logEl.appendChild(d);while(logEl.childNodes.length>300)logEl.removeChild(logEl.firstChild);logEl.scrollTop=logEl.scrollHeight;}
 ['log','info','warn','error'].forEach(function(k){var o=console[k];console[k]=function(){try{hostLog('['+k+'] '+Array.prototype.slice.call(arguments).join(' '),k=='error'?'e':k=='warn'?'w':'');}catch(e){}o.apply(console,arguments);};});
 window.addEventListener('error',function(e){hostLog('ERRO: '+e.message,'e');});
 window.addEventListener('unhandledrejection',function(e){hostLog('PROMISE: '+e.reason,'e');});
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v);}catch(e){return null;}}
+function $(i){return document.getElementById(i);}
 var DEF_SWF='https://game.aq.com/game/gamefiles/Loader4.swf?ver=a';
-document.getElementById('swf').value=q.get('swf')||DEF_SWF;
-document.getElementById('sock').value=ls('sock')||'';
-// https://host/path -> /p/host/path (passa pelo proxy do app, que libera CORS e mantem caminhos relativos)
+$('swf').value=q.get('swf')||DEF_SWF;
+$('sock').value=ls('sock')||'';
+$('q').value=ls('quality')||'low';
 function viaProxy(u){var x=new URL(u);return location.origin+(x.protocol==='http:'?'/ph/':'/p/')+x.host+x.pathname+x.search;}
 var player=null;
-// POST nao passa pelo proxy do Android: desvia para a ponte nativa do app.
 (function(){
   var of=window.fetch;
   function b64(buf){var u=new Uint8Array(buf),s='',i;for(i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s);}
@@ -60,53 +83,56 @@ var player=null;
     return of.apply(this,arguments);
   };
 })();
-function defaultSocks(){
-  var l=[],i,p;
-  for(i=1;i<=40;i++)for(p=5588;p<=5592;p++)l.push('sock'+i+'.aq.com:'+p);
-  return l.join(',');
-}
+function defaultSocks(){var l=[],i,p;for(i=1;i<=40;i++)for(p=5588;p<=5592;p++)l.push('sock'+i+'.aq.com:'+p);return l.join(',');}
 function proxies(){
-  var typed=document.getElementById('sock').value.trim();
+  var typed=$('sock').value.trim();
   return (typed?typed+','+defaultSocks():defaultSocks()).split(',').map(function(s){return s.trim();}).filter(Boolean).map(function(hp){
     var i=hp.lastIndexOf(':');
     return {host:hp.substring(0,i),port:parseInt(hp.substring(i+1),10),proxyUrl:'ws://127.0.0.1:'+PORT+'/'+TOKEN+'/'+hp};
   });
 }
 function loadGame(){
-  var swf=document.getElementById('swf').value.trim();
-  ls('swf',swf);ls('sock',document.getElementById('sock').value);
-  if(!window.RufflePlayer){hostLog('Ruffle ainda nao carregou','e');return;}
-  var g=document.getElementById('game');g.innerHTML='';
-  var r=window.RufflePlayer.newest();player=r.createPlayer();g.appendChild(player);
+  var swf=$('swf').value.trim();
+  ls('swf',swf);ls('sock',$('sock').value);ls('quality',$('q').value);
+  if(!window.RufflePlayer){hostLog('Ruffle ainda não carregou','e');return;}
+  var g=$('game');g.innerHTML='';
+  player=window.RufflePlayer.newest().createPlayer();g.appendChild(player);
   var url=/^https?:/.test(swf)?viaProxy(swf):swf;
-  var sp=proxies();
-  hostLog('carregando '+url+' | '+sp.length+' sockets liberados (sock1..40.aq.com portas 5588-5592 + os digitados)');
-  player.load({url:url,autoplay:'on',unmuteOverlay:'hidden',allowScriptAccess:true,logLevel:'info',socketProxy:sp,
-    parameters:{sLang:'',isweb:'true'}}).then(function(){hostLog('SWF aceito pelo Ruffle');setTimeout(listFns,6000);}).catch(function(e){hostLog('falha no load: '+e,'e');});
+  hostLog('carregando '+url+' (qualidade '+$('q').value+')');
+  player.load({url:url,autoplay:'on',unmuteOverlay:'hidden',allowScriptAccess:true,logLevel:'warn',
+    quality:$('q').value,scale:'showAll',letterbox:'on',contextMenu:'off',showSwfDownload:false,
+    splashScreen:false,preferredRenderer:'wgpu-webgl',maxExecutionDuration:{secs:60,nanos:0},
+    socketProxy:proxies(),parameters:{sLang:'',isweb:'true'}})
+   .then(function(){hostLog('Jogo aceito pelo Ruffle');}).catch(function(e){hostLog('falha ao carregar: '+e,'e');});
 }
 function listFns(){
-  if(!player){hostLog('sem player','w');return;}
-  var out=[];
-  for(var k in player){try{if(typeof player[k]==='function'&&!(k in HTMLElement.prototype)&&!(k in Element.prototype))out.push(k);}catch(e){}}
-  hostLog('Funcoes expostas no player ('+out.length+'): '+out.join(', '));
+  if(!player){hostLog('sem jogo carregado','w');return;}
+  var out=[];for(var k in player){try{if(typeof player[k]==='function'&&!(k in HTMLElement.prototype)&&!(k in Element.prototype))out.push(k);}catch(e){}}
+  hostLog('Funções expostas no player ('+out.length+'): '+out.join(', '));
 }
 function discover(){
-  var cands=['https://game.aq.com/game/gamefiles/Loader4.swf?ver=a'];
-  cands.forEach(function(u){fetch(viaProxy(u)).then(function(r){hostLog('TESTE '+u+' -> '+r.status+' '+(r.headers.get('content-type')||''),r.ok?'':'w');}).catch(function(e){hostLog('TESTE '+u+' -> erro '+e,'e');});});
-  fetch(viaProxy('https://game.aq.com/game/')).then(function(r){return r.text();}).then(function(t){
-    var m=t.match(/[\w\/.:\-]*\.(swf|js)[\w?=&.\-]*/gi)||[];var u={};m.forEach(function(x){u[x]=1;});
-    hostLog('Referencias na pagina do jogo ('+Object.keys(u).length+'): '+Object.keys(u).join(' | '));
-    var i=t.search(/embedSWF|swfobject\.embed/i);if(i>=0)hostLog('EMBED: '+t.substring(Math.max(0,i-300),i+900).replace(/\s+/g,' '));var f=t.match(/flashvars[^;]{0,200}/i);if(f)hostLog('flashvars: '+f[0].replace(/\s+/g,' '));
-  }).catch(function(e){hostLog('pagina do jogo: erro '+e,'e');});
+  fetch(viaProxy('https://game.aq.com/game/gamefiles/Loader4.swf?ver=a')).then(function(r){hostLog('TESTE do loader -> '+r.status,r.ok?'':'w');}).catch(function(e){hostLog('TESTE do loader: erro '+e,'e');});
 }
-document.getElementById('dsc').onclick=discover;
-document.getElementById('go').onclick=loadGame;
-document.getElementById('fn').onclick=listFns;
+function setFs(on){
+  document.body.classList.toggle('fs',on);
+  try{if(window.AqwNative)window.AqwNative.fullscreen(on);}catch(e){}
+}
+window.exitFs=function(fromApp){document.body.classList.remove('fs');if(!fromApp){try{window.AqwNative.fullscreen(false);}catch(e){}}};
+$('fs').onclick=function(){setFs(true);};
+$('sair').onclick=function(){setFs(false);};
+$('go').onclick=loadGame;
+$('fn').onclick=listFns;
+$('dsc').onclick=discover;
+$('dg').onclick=function(){
+  logOn=!logOn;
+  $('adv').style.display=logOn?'flex':'none';
+  logEl.style.display=logOn?'block':'none';
+  if(logOn){logEl.innerHTML='';buf.forEach(function(x){draw(x[0],x[1]);});}
+};
 window.RufflePlayer=window.RufflePlayer||{};
-window.RufflePlayer.config={polyfills:false,autoplay:'on',unmuteOverlay:'hidden',logLevel:'info'};
-var s=document.createElement('script');s.src='https://unpkg.com/@ruffle-rs/ruffle';
-s.onload=function(){hostLog('Ruffle carregado');loadGame();};
-s.onerror=function(){hostLog('Ruffle NAO carregou (sem internet?)','e');};
-document.head.appendChild(s);
-hostLog('ponte local porta='+PORT);
+window.RufflePlayer.config={polyfills:false,autoplay:'on',unmuteOverlay:'hidden',logLevel:'warn'};
+var sc=document.createElement('script');sc.src='https://unpkg.com/@ruffle-rs/ruffle';
+sc.onload=function(){hostLog('Ruffle carregado');loadGame();};
+sc.onerror=function(){hostLog('Ruffle NÃO carregou (sem internet?)','e');};
+document.head.appendChild(sc);
 </script></body></html>

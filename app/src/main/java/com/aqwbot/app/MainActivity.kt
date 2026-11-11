@@ -12,6 +12,11 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.webkit.WebChromeClient
+import android.view.ViewGroup
+import android.content.pm.ActivityInfo
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import java.net.HttpURLConnection
@@ -133,7 +138,10 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (webView.canGoBack()) webView.goBack() else finish()
+                if (fullscreen) {
+                    setFullscreen(false)
+                    webView.evaluateJavascript("window.exitFs&&exitFs(true)", null)
+                } else if (webView.canGoBack()) webView.goBack() else finish()
             }
         })
 
@@ -248,9 +256,44 @@ class MainActivity : AppCompatActivity() {
     }
 
     @Volatile private var localLoaded = false
+    private var fullscreen = false
+    private var origPad = intArrayOf(0, 0, 0, 0)
+
+    // Tela cheia: esconde o painel do app, gira para paisagem e some com as barras do sistema.
+    private fun setFullscreen(on: Boolean) {
+        val root = webView.parent as ViewGroup
+        if (on && !fullscreen) origPad = intArrayOf(root.paddingLeft, root.paddingTop, root.paddingRight, root.paddingBottom)
+        fullscreen = on
+        for (i in 0 until root.childCount) {
+            val v = root.getChildAt(i)
+            if (v !== webView) v.visibility = if (on) View.GONE else View.VISIBLE
+        }
+        if (on) root.setPadding(0, 0, 0, 0) else root.setPadding(origPad[0], origPad[1], origPad[2], origPad[3])
+        (webView.layoutParams as? android.widget.LinearLayout.LayoutParams)?.let {
+            it.topMargin = if (on) 0 else (10 * resources.displayMetrics.density).toInt()
+            webView.layoutParams = it
+        }
+        requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        WindowCompat.setDecorFitsSystemWindows(window, !on)
+        val ctl = WindowInsetsControllerCompat(window, window.decorView)
+        if (on) {
+            ctl.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            ctl.hide(WindowInsetsCompat.Type.systemBars())
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            ctl.show(WindowInsetsCompat.Type.systemBars())
+            if (!running) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     // Ponte JS -> app para POST (o Android nao entrega o corpo do POST ao proxy normal).
     inner class Native {
+        @android.webkit.JavascriptInterface
+        fun fullscreen(on: Boolean) {
+            if (!localLoaded) return
+            runOnUiThread { setFullscreen(on) }
+        }
+
         @android.webkit.JavascriptInterface
         fun post(url: String, contentType: String, bodyB64: String): String {
             val out = org.json.JSONObject()

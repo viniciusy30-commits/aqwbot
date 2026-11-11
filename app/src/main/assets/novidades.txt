@@ -1,3 +1,10 @@
+#id 2026-11-11-b
+#titulo Jogo em tela cheia e mais leve
+- Botão Tela cheia: esconde o painel, gira para paisagem e some com as barras do sistema; o botão Voltar do celular sai da tela cheia
+- Escolha a qualidade (baixa, média ou alta); a baixa dá mais FPS. Trocar a qualidade exige Recarregar
+- Log de diagnóstico escondido por padrão (botão Diagnóstico), com menos ruído, para não pesar
+- Os botões e avisos da página estão em português
+
 #id 2026-11-11-a
 #titulo Página local com Ruffle e ponte de socket
 - Digite "local" (ou "local:URL_DO_SWF") no campo de URL e toque em Ir: abre uma página do próprio app com o Ruffle, sem depender do site
