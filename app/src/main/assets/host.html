@@ -36,6 +36,30 @@ document.getElementById('sock').value=ls('sock')||'';
 // https://host/path -> /p/host/path (passa pelo proxy do app, que libera CORS e mantem caminhos relativos)
 function viaProxy(u){var x=new URL(u);return location.origin+(x.protocol==='http:'?'/ph/':'/p/')+x.host+x.pathname+x.search;}
 var player=null;
+// POST nao passa pelo proxy do Android: desvia para a ponte nativa do app.
+(function(){
+  var of=window.fetch;
+  function b64(buf){var u=new Uint8Array(buf),s='',i;for(i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s);}
+  function unb64(t){var s=atob(t),u=new Uint8Array(s.length),i;for(i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u;}
+  window.fetch=function(input,init){
+    try{
+      var isReq=(typeof Request!=='undefined')&&input instanceof Request;
+      var url=isReq?input.url:String(input);
+      var method=((init&&init.method)||(isReq&&input.method)||'GET').toUpperCase();
+      if(method==='POST'&&window.AqwNative&&(url.indexOf(location.origin+'/p/')===0||url.indexOf(location.origin+'/ph/')===0)){
+        var src=isReq?input.clone():null;
+        var bodyP=(init&&init.body!==undefined&&init.body!==null)?new Response(init.body).arrayBuffer():(src?src.arrayBuffer():Promise.resolve(new ArrayBuffer(0)));
+        var ct=new Headers((init&&init.headers)||(isReq?input.headers:undefined)).get('content-type')||'';
+        return bodyP.then(function(buf){
+          var r=JSON.parse(window.AqwNative.post(url,ct,b64(buf)));
+          hostLog('POST '+url.replace(location.origin,'')+' -> '+r.status,r.status<400?'':'e');
+          return new Response(unb64(r.body),{status:r.status,headers:r.type?{'content-type':r.type}:{}});
+        });
+      }
+    }catch(e){hostLog('fetch hook: '+e,'e');}
+    return of.apply(this,arguments);
+  };
+})();
 function proxies(){
   return document.getElementById('sock').value.split(',').map(function(s){return s.trim();}).filter(Boolean).map(function(hp){
     var i=hp.lastIndexOf(':');
@@ -75,7 +99,7 @@ document.getElementById('fn').onclick=listFns;
 window.RufflePlayer=window.RufflePlayer||{};
 window.RufflePlayer.config={polyfills:false,autoplay:'on',unmuteOverlay:'hidden',logLevel:'info'};
 var s=document.createElement('script');s.src='https://unpkg.com/@ruffle-rs/ruffle';
-s.onload=function(){hostLog('Ruffle carregado');discover();loadGame();};
+s.onload=function(){hostLog('Ruffle carregado');loadGame();};
 s.onerror=function(){hostLog('Ruffle NAO carregou (sem internet?)','e');};
 document.head.appendChild(s);
 hostLog('ponte local porta='+PORT);

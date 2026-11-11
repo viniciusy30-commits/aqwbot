@@ -113,6 +113,7 @@ class MainActivity : AppCompatActivity() {
                 handler.postDelayed({ checkRuffle() }, 4000)
             }
         }
+        webView.addJavascriptInterface(Native(), "AqwNative")
         webView.webChromeClient = WebChromeClient()
 
         findViewById<MaterialButton>(R.id.loadButton).setOnClickListener { loadUrl() }
@@ -181,6 +182,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (!url.startsWith("http")) url = "https://$url"
+        localLoaded = false
         if (!running) setStatus("Carregando…", R.color.warn)
         webView.loadUrl(url)
     }
@@ -197,6 +199,7 @@ class MainActivity : AppCompatActivity() {
                 .appendQueryParameter("port", b.port.toString())
                 .appendQueryParameter("token", b.token)
             if (swf.isNotEmpty()) u.appendQueryParameter("swf", swf)
+            localLoaded = true
             setStatus("Página local (Ruffle + ponte)", R.color.warn)
             webView.loadUrl(u.build().toString())
         } catch (e: Exception) {
@@ -221,7 +224,9 @@ class MainActivity : AppCompatActivity() {
                 c.connectTimeout = 15000
                 c.readTimeout = 30000
                 c.setRequestProperty("User-Agent", DESKTOP_UA)
+                android.webkit.CookieManager.getInstance().getCookie(target)?.let { c.setRequestProperty("Cookie", it) }
                 val code = c.responseCode
+                saveCookies(target, c)
                 val stream = if (code >= 400) c.errorStream else c.inputStream
                 val mime = (c.contentType ?: "application/octet-stream").substringBefore(";").trim()
                 val headers = mapOf("Access-Control-Allow-Origin" to "*")
@@ -232,6 +237,56 @@ class MainActivity : AppCompatActivity() {
                 java.io.ByteArrayInputStream((e.message ?: "erro").toByteArray()))
         }
         return null
+    }
+
+    private fun saveCookies(target: String, c: HttpURLConnection) {
+        val cm = android.webkit.CookieManager.getInstance()
+        c.headerFields?.forEach { (k, v) ->
+            if (k != null && k.equals("Set-Cookie", ignoreCase = true)) v.forEach { cm.setCookie(target, it) }
+        }
+        cm.flush()
+    }
+
+    @Volatile private var localLoaded = false
+
+    // Ponte JS -> app para POST (o Android nao entrega o corpo do POST ao proxy normal).
+    inner class Native {
+        @android.webkit.JavascriptInterface
+        fun post(url: String, contentType: String, bodyB64: String): String {
+            val out = org.json.JSONObject()
+            try {
+                if (!localLoaded) throw IllegalStateException("bloqueado")
+                val u = Uri.parse(url)
+                if (u.host != LOCAL_HOST) throw IllegalArgumentException("host")
+                val path = u.encodedPath ?: ""
+                val http = path.startsWith("/ph/")
+                if (!http && !path.startsWith("/p/")) throw IllegalArgumentException("path")
+                val rest = path.removePrefix(if (http) "/ph/" else "/p/")
+                val target = (if (http) "http://" else "https://") + rest + (u.encodedQuery?.let { "?$it" } ?: "")
+                val c = URL(target).openConnection() as HttpURLConnection
+                c.connectTimeout = 15000
+                c.readTimeout = 30000
+                c.requestMethod = "POST"
+                c.doOutput = true
+                c.setRequestProperty("User-Agent", DESKTOP_UA)
+                if (contentType.isNotEmpty()) c.setRequestProperty("Content-Type", contentType)
+                android.webkit.CookieManager.getInstance().getCookie(target)?.let { c.setRequestProperty("Cookie", it) }
+                val body = android.util.Base64.decode(bodyB64, android.util.Base64.DEFAULT)
+                c.outputStream.use { it.write(body) }
+                val code = c.responseCode
+                saveCookies(target, c)
+                val st = if (code >= 400) c.errorStream else c.inputStream
+                val bytes = st?.use { it.readBytes() } ?: ByteArray(0)
+                out.put("status", code)
+                out.put("type", c.contentType ?: "")
+                out.put("body", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+            } catch (e: Exception) {
+                out.put("status", 502)
+                out.put("type", "text/plain")
+                out.put("body", android.util.Base64.encodeToString((e.message ?: "erro").toByteArray(), android.util.Base64.NO_WRAP))
+            }
+            return out.toString()
+        }
     }
 
     private fun checkRuffle() {
