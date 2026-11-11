@@ -40,6 +40,8 @@ body.fs #sair{display:block}
  <button id="fn">Funções</button>
  <input id="pth" placeholder="caminho (ex: world.myAvatar.dataLeaf.intHP)">
  <button id="rd">Ler</button> <button id="ky">Chaves</button> <button id="ds">Tipo</button> <button id="dp">Dump</button> <button id="pg">Cliente mod?</button>
+ <span>Bot - skills:</span><input id="bsk" style="flex:0 0 90px;min-width:70px" placeholder="1,2,3,4"> <span>ms:</span><input id="bms" style="flex:0 0 60px;min-width:50px" placeholder="400">
+ <button id="bot">Bot: DESLIGADO</button>
  <button id="exp">Exportar arquivos do jogo</button>
  <button id="cap">Capturar pacotes: OFF</button>
  <button id="dsc">Descobrir</button>
@@ -185,7 +187,9 @@ window.aqw=(function(){
     set:function(p,v){return chk(player.aqwSet(p,v));},
     call:function(p,args){return chk(player.aqwCall(p,args||[]));},
     keys:function(p){return chk(player.aqwKeys(p||''))||[];},
-    desc:function(p){return chk(player.aqwDescribe(p||''));}
+    desc:function(p){return chk(player.aqwDescribe(p||''));},
+    cast:function(k){return chk(player.aqwCastKey(String(k)));},
+    target:function(i){return chk(player.aqwTarget(i));}
   };
 })();
 function aqwNeed(){if(!window.aqw.ok()){hostLog('Cliente modificado indisponível: entre no jogo até um mapa e confira "CLIENTE MOD" no log','w');return false;}return true;}
@@ -207,7 +211,7 @@ $('dp').onclick=function(){
   function dumpObj(p,max){
     var k;try{k=A.keys(p);}catch(e){L.push(p+': '+e.message);return;}
     L.push(p+' ('+k.length+' chaves)');
-    k.slice(0,max||120).forEach(function(n){var v;try{v=A.get(p+'.'+n);}catch(e){v='!'+e.message;}L.push('  '+n+' = '+fmtV(v));});
+    k.slice(0,max||120).forEach(function(n){if(/^(strEmail|strIP|UserID|CharID)$/.test(n))return;var v;try{v=A.get(p+'.'+n);}catch(e){v='!'+e.message;}L.push('  '+n+' = '+fmtV(v));});
   }
   L.push('AQW cliente modificado '+A.ping()+' - '+new Date().toISOString());
   ['world.strMapName','world.strAreaName','world.strFrame','world.curRoom','world.mapEntered','world.myAvatar.uid','world.myAvatar.isMyAvatar','world.myAvatar.pnm','world.myAvatar.target','world.myAvatar.npcType'].forEach(function(p){var v;try{v=A.get(p);}catch(e){v='!'+e.message;}L.push(p+' = '+fmtV(v));});
@@ -222,6 +226,48 @@ $('dp').onclick=function(){
   try{window.AqwNative.saveText('dump-cliente.txt',txt);}catch(e){hostLog('salvar dump: '+e,'e');}
   hostLog('Dump gerado: '+L.length+' linhas. Toque em "Exportar arquivos do jogo" e me envie o ZIP.');
 };
+
+// ===== Bot de combate: escolhe alvo vivo na mesma cela e usa as skills em rodizio =====
+var bot={on:false,t:null,i:0,last:'',n:0};
+function botKeys(){var v=($('bsk').value||'1,2,3,4').split(',').map(function(x){return parseInt(x,10);}).filter(function(x){return x>=0;});
+  return v.map(function(n){return String(n<=9?48+n:n);});}
+function botTick(){
+  var A=window.aqw;
+  try{
+    if(!A.ok())return;
+    var st=A.get('world.myAvatar.dataLeaf.intState');
+    if(st===null||st===0)return;
+    var ok=false;
+    if(A.get('world.myAvatar.target')!==null){
+      var hp=A.get('world.myAvatar.target.dataLeaf.intHP'),ts=A.get('world.myAvatar.target.dataLeaf.intState');
+      ok=(hp===null||hp>0)&&ts!==0;
+    }
+    if(!ok){
+      var n=A.get('world.monsters.length')||0,myF=A.get('world.myAvatar.dataLeaf.strFrame'),pick=-1,i;
+      for(i=0;i<n;i++){var dl='world.monsters.'+i+'.dataLeaf',h=A.get(dl+'.intHP');
+        if(h===null||!(h>0))continue;
+        if(A.get(dl+'.intState')===0)continue;
+        if(A.get(dl+'.strFrame')!==myF)continue;
+        pick=i;break;}
+      if(pick<0){bot.last='sem alvo na cela';return;}
+      A.target(pick);bot.n++;
+    }
+    var ks=botKeys();if(!ks.length)return;
+    var k=ks[bot.i%ks.length];bot.i++;
+    var r=A.cast(k);
+    if(r!==bot.last){bot.last=r;if(r==='noact')hostLog('bot: tecla '+k+' sem skill associada','w');}
+  }catch(e){var m=String(e.message);if(m!==bot.last){bot.last=m;hostLog('bot: '+m,'e');}}
+}
+function botSet(on){
+  bot.on=on;clearInterval(bot.t);
+  if(on){var ms=Math.max(150,parseInt($('bms').value,10)||400);ls('bsk',$('bsk').value);ls('bms',$('bms').value);
+    bot.t=setInterval(botTick,ms);hostLog('bot LIGADO: skills '+botKeys().join(',')+' a cada '+ms+' ms');}
+  else hostLog('bot desligado (alvos escolhidos: '+bot.n+')');
+  $('bot').textContent='Bot: '+(on?'LIGADO':'DESLIGADO');
+  try{window.AqwNative.keepOn(on);}catch(e){}
+}
+$('bsk').value=ls('bsk')||'1,2,3,4';$('bms').value=ls('bms')||'400';
+$('bot').onclick=function(){if(!bot.on&&!aqwNeed())return;botSet(!bot.on);};
 window.RufflePlayer=window.RufflePlayer||{};
 window.RufflePlayer.config={polyfills:false,autoplay:'on',unmuteOverlay:'hidden',logLevel:'warn'};
 var sc=document.createElement('script');sc.src='https://unpkg.com/@ruffle-rs/ruffle';

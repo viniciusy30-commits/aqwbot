@@ -139,6 +139,35 @@ add_method('aqwDescribe',1,A.build())
 A=M(0,1)
 A.op('getlocal_0');A.op('pushscope');A.op('pushstring',S('aqw1'));A.op('returnvalue')
 add_method('aqwPing',0,A.build())
+def GM(name):
+    """multiname que o proprio jogo usa (Multiname com o conjunto de namespaces da classe Game)"""
+    bt=name.encode()
+    si=a.strs.index(bt)+1
+    c=[i+1 for i,m in enumerate(a.mn) if m[0]==9 and m[1]==si and m[2]==607]
+    assert c,name
+    return c[0]
+# aqwCastKey(k): mesma logica do teclado do jogo (actionMap -> acao -> testAction / approachTarget)
+A=M(1,4)
+A.op('getlocal_0');A.op('pushscope')
+A.L('S')
+A.op('getlocal_0');A.op('getproperty',GM('world'));A.op('setlocal_3')
+A.op('getlocal_3');A.op('getlocal_3');A.op('getproperty',GM('actionMap'));A.op('getlocal_1');A.op('getproperty',mL);A.op('convert_s')
+A.op('callproperty',GM('getActionByRef'),1);A.op('setlocal_2')
+A.op('getlocal_2');A.op('pushnull');A.op('ifne','Lok');A.op('pushstring',S('noact'));A.op('returnvalue')
+A.L('Lok');A.op('getlocal_2');A.op('getproperty',GM('auto'));A.op('pushtrue');A.op('ifne','Lreg')
+A.op('getlocal_3');A.op('callpropvoid',GM('approachTarget'),0);A.op('pushstring',S('auto'));A.op('returnvalue')
+A.L('Lreg');A.op('getlocal_3');A.op('getlocal_2');A.op('callpropvoid',GM('testAction'),1);A.op('pushstring',S('ok'));A.op('returnvalue')
+A.L('T'); err_handler(A); A.try_('S','T','E')
+add_method('aqwCastKey',1,A.build())
+# aqwTarget(i): world.setTarget(world.monsters[i])
+A=M(1,3)
+A.op('getlocal_0');A.op('pushscope')
+A.L('S')
+A.op('getlocal_0');A.op('getproperty',GM('world'));A.op('setlocal_2')
+A.op('getlocal_2');A.op('getlocal_2');A.op('getproperty',GM('monsters'));A.op('getlocal_1');A.op('getproperty',mL);A.op('callpropvoid',GM('setTarget'),1)
+A.op('pushtrue');A.op('returnvalue')
+A.L('T'); err_handler(A); A.try_('S','T','E')
+add_method('aqwTarget',1,A.build())
 # aqwInstall(): registra os callbacks (com trace de diagnostico)
 TR=q('trace')
 def tr(A,txt):
@@ -147,7 +176,7 @@ A=M(0,1)
 A.op('getlocal_0');A.op('pushscope')
 A.L('S')
 tr(A,'AQWMOD install start')
-for nm in ('aqwGet','aqwSet','aqwCall','aqwKeys','aqwDescribe','aqwPing'):
+for nm in ('aqwGet','aqwSet','aqwCall','aqwKeys','aqwDescribe','aqwPing','aqwCastKey','aqwTarget'):
     A.op('getlex',EI);A.op('pushstring',S(nm));A.op('getlocal_0');A.op('getproperty',q(nm));A.op('callpropvoid',ADDCB,2)
 tr(A,'AQWMOD install ok')
 A.op('returnvoid')

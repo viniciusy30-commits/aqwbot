@@ -424,6 +424,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         @android.webkit.JavascriptInterface
+        fun keepOn(on: Boolean) {
+            if (!localLoaded) return
+            runOnUiThread {
+                if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else if (!running && !fullscreen) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+
+        @android.webkit.JavascriptInterface
         fun setMod(on: Boolean) {
             if (localLoaded) clientMod = on
         }
