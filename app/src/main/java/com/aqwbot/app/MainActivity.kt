@@ -176,8 +176,8 @@ class MainActivity : AppCompatActivity() {
         var url = urlInput.text.toString().trim()
         if (url.isEmpty()) return
         // "local" ou "local:URL_DO_SWF" abre a pagina propria com Ruffle + ponte de socket.
-        if (url.startsWith("local", ignoreCase = true)) {
-            loadLocalHost(url.substringAfter(":", "").trim())
+        if (url.startsWith("local", ignoreCase = true) || url.trimEnd('/').equals("https://game.aq.com/game", ignoreCase = true)) {
+            loadLocalHost(if (url.startsWith("local", ignoreCase = true)) url.substringAfter(":", "").trim() else "")
             return
         }
         if (!url.startsWith("http")) url = "https://$url"
