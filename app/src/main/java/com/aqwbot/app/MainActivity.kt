@@ -253,7 +253,7 @@ class MainActivity : AppCompatActivity() {
                 val isSwf = path.endsWith(".swf", ignoreCase = true)
                 if ((fps > 0 || isSwf) && code < 400 && stream != null) {
                     var b = stream.use { it.readBytes() }
-                    if (isSwf) saveSwf(rest, b)
+                    if (isSwf) { saveSwf(rest, b); b = applyClientMod(b) }
                     if (fps > 0) b = patchSwfFps(b, fps)
                     return WebResourceResponse(mime, "utf-8", code, "OK", headers, java.io.ByteArrayInputStream(b))
                 }
@@ -264,6 +264,28 @@ class MainActivity : AppCompatActivity() {
                 java.io.ByteArrayInputStream((e.message ?: "erro").toByteArray()))
         }
         return null
+    }
+
+    // Cliente modificado: se o Game.swf baixado for exatamente a versao que analisamos, troca pela copia
+    // com as funcoes aqwGet/aqwSet/aqwCall/aqwKeys/aqwDescribe/aqwPing (via ExternalInterface). Outra versao passa sem mudanca.
+    private val modOrigSha = "5590293fc30337c8d5ca6c7d4e518843cbecf802ff6e3b8c4d875d82dee9f49d"
+    private val modOrigSize = 2812559
+
+    private fun applyClientMod(b: ByteArray): ByteArray {
+        try {
+            if (b.size < 1000000) return b
+            val sha = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
+            if (b.size != modOrigSize || sha != modOrigSha) {
+                jsLog("CLIENTE MOD: este Game.swf nao e a versao analisada (" + b.size + " bytes); nao apliquei a modificacao")
+                return b
+            }
+            val m = assets.open("game-mod.swf").use { it.readBytes() }
+            jsLog("CLIENTE MOD: aplicado no Game.swf (" + m.size / 1024 + " KB)")
+            return m
+        } catch (e: Exception) {
+            jsLog("CLIENTE MOD: falhou (" + e.message + "); usando o original")
+            return b
+        }
     }
 
     // Guarda uma copia dos SWFs principais (direto em .../gamefiles/) para exportar e analisar.
@@ -396,6 +418,19 @@ class MainActivity : AppCompatActivity() {
         @android.webkit.JavascriptInterface
         fun exportFiles() {
             if (localLoaded) runOnUiThread { exportSwfs() }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun saveText(name: String, text: String) {
+            if (!localLoaded) return
+            try {
+                val dir = java.io.File(filesDir, "swf")
+                dir.mkdirs()
+                java.io.File(dir, name.replace(Regex("[^A-Za-z0-9._-]"), "_")).writeText(text)
+                jsLog("salvo " + name + " (" + text.length / 1024 + " KB): toque em Exportar arquivos do jogo")
+            } catch (e: Exception) {
+                jsLog("saveText falhou: " + e.message)
+            }
         }
 
         @android.webkit.JavascriptInterface

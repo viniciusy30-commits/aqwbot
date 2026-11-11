@@ -37,6 +37,8 @@ body.fs #sair{display:block}
  <input id="swf" placeholder="URL do SWF (https://...)">
  <input id="sock" placeholder="sockets extras host:porta, separados por vírgula">
  <button id="fn">Funções</button>
+ <input id="pth" placeholder="caminho (ex: world.myAvatar.dataLeaf.intHP)">
+ <button id="rd">Ler</button> <button id="ky">Chaves</button> <button id="ds">Tipo</button> <button id="dp">Dump</button> <button id="pg">Cliente mod?</button>
  <button id="exp">Exportar arquivos do jogo</button>
  <button id="cap">Capturar pacotes: OFF</button>
  <button id="dsc">Descobrir</button>
@@ -166,6 +168,54 @@ $('dg').onclick=function(){
   $('adv').style.display=logOn?'flex':'none';
   logEl.style.display=logOn?'block':'none';
   if(logOn){logEl.innerHTML='';buf.forEach(function(x){draw(x[0],x[1]);});}
+};
+
+// ===== Cliente modificado: API para ler/comandar o jogo (funcoes injetadas no Game.swf) =====
+window.aqw=(function(){
+  function ok(){return !!(player&&typeof player.aqwGet==='function');}
+  function chk(r){if(typeof r==='string'&&r.charAt(0)==='!')throw new Error(r.substring(1));return r;}
+  return {
+    ok:ok,
+    ping:function(){return ok()?player.aqwPing():null;},
+    get:function(p){return chk(player.aqwGet(p));},
+    set:function(p,v){return chk(player.aqwSet(p,v));},
+    call:function(p,args){return chk(player.aqwCall(p,args||[]));},
+    keys:function(p){return chk(player.aqwKeys(p||''))||[];},
+    desc:function(p){return chk(player.aqwDescribe(p||''));}
+  };
+})();
+function aqwNeed(){if(!window.aqw.ok()){hostLog('Cliente modificado indisponível: entre no jogo até um mapa e confira "CLIENTE MOD" no log','w');return false;}return true;}
+function fmtV(v){if(v===null||v===undefined)return 'null';var s=String(v);return s.length>120?s.substring(0,120)+'…':s;}
+$('pg').onclick=function(){
+  if(!window.aqw.ok()){hostLog('aqwGet NÃO existe no player (o jogo ainda não chegou ao ponto da injeção, ou a modificação não foi aplicada)','e');return;}
+  hostLog('Cliente modificado ativo: '+window.aqw.ping());
+};
+$('rd').onclick=function(){if(!aqwNeed())return;var p=$('pth').value.trim();try{hostLog(p+' = '+fmtV(window.aqw.get(p)));}catch(e){hostLog(p+': '+e.message,'e');}};
+$('ky').onclick=function(){if(!aqwNeed())return;var p=$('pth').value.trim();try{var k=window.aqw.keys(p);hostLog(p+' -> '+k.length+' chaves: '+k.join(', '));}catch(e){hostLog(p+': '+e.message,'e');}};
+$('ds').onclick=function(){if(!aqwNeed())return;var p=$('pth').value.trim();try{var x=window.aqw.desc(p),n=[];var d=new DOMParser().parseFromString(x,'text/xml');
+  var t=d.documentElement;hostLog(p+' é '+t.getAttribute('name')+' (base '+t.getAttribute('base')+')');
+  ['variable','accessor','method'].forEach(function(tag){var a=[].slice.call(d.getElementsByTagName(tag)).map(function(e){return e.getAttribute('name')+(tag==='method'?'('+e.getElementsByTagName('parameter').length+')':'');});hostLog(tag+' ('+a.length+'): '+a.join(', '));});
+ }catch(e){hostLog(p+': '+e.message,'e');}};
+$('dp').onclick=function(){
+  if(!aqwNeed())return;var L=[],A=window.aqw;
+  function sec(t){L.push('');L.push('== '+t);}
+  function dumpObj(p,max){
+    var k;try{k=A.keys(p);}catch(e){L.push(p+': '+e.message);return;}
+    L.push(p+' ('+k.length+' chaves)');
+    k.slice(0,max||120).forEach(function(n){var v;try{v=A.get(p+'.'+n);}catch(e){v='!'+e.message;}L.push('  '+n+' = '+fmtV(v));});
+  }
+  L.push('AQW cliente modificado '+A.ping()+' - '+new Date().toISOString());
+  ['world.strMapName','world.strAreaName','world.strFrame','world.curRoom','world.mapEntered','world.myAvatar.uid','world.myAvatar.isMyAvatar','world.myAvatar.pnm','world.myAvatar.target','world.myAvatar.npcType'].forEach(function(p){var v;try{v=A.get(p);}catch(e){v='!'+e.message;}L.push(p+' = '+fmtV(v));});
+  sec('meu personagem');dumpObj('world.myAvatar.dataLeaf');dumpObj('world.myAvatar.objData');
+  sec('monstros (world.monsters)');var mk=[];try{mk=A.keys('world.monsters');}catch(e){L.push('keys: '+e.message);}
+  L.push('quantidade de chaves: '+mk.length+' | length='+fmtV((function(){try{return A.get('world.monsters.length');}catch(e){return '?';}})()));
+  mk.slice(0,3).forEach(function(k){dumpObj('world.monsters.'+k,60);});
+  sec('monstros da cela (getMonstersByCell)');try{var r=A.call('world.getMonstersByCell',[]);L.push('retorno: '+fmtV(r));}catch(e){L.push(e.message);}
+  sec('arvores de dados');['world.monTree','world.uoTree','world.invTree','world.questTree'].forEach(function(p){var k;try{k=A.keys(p);L.push(p+': '+k.length+' chaves: '+k.slice(0,40).join(', '));}catch(e){L.push(p+': '+e.message);}});
+  sec('alvo');dumpObj('world.myAvatar.target.dataLeaf',60);
+  var txt=L.join('\n');
+  try{window.AqwNative.saveText('dump-cliente.txt',txt);}catch(e){hostLog('salvar dump: '+e,'e');}
+  hostLog('Dump gerado: '+L.length+' linhas. Toque em "Exportar arquivos do jogo" e me envie o ZIP.');
 };
 window.RufflePlayer=window.RufflePlayer||{};
 window.RufflePlayer.config={polyfills:false,autoplay:'on',unmuteOverlay:'hidden',logLevel:'warn'};
