@@ -227,7 +227,11 @@ class MainActivity : AppCompatActivity() {
             if ((path.startsWith("/p/") || path.startsWith("/ph/")) && request.method == "GET") {
                 val http = path.startsWith("/ph/")
                 val rest = path.removePrefix(if (http) "/ph/" else "/p/")
-                val target = (if (http) "http://" else "https://") + rest + (uri.encodedQuery?.let { "?$it" } ?: "")
+                var fps = 0
+                val q = (uri.encodedQuery ?: "").split("&").filter { it.isNotEmpty() }.filter {
+                    if (it.startsWith("aqwfps=")) { fps = it.substringAfter("=").toIntOrNull() ?: 0; false } else true
+                }
+                val target = (if (http) "http://" else "https://") + rest + (if (q.isNotEmpty()) "?" + q.joinToString("&") else "")
                 val c = URL(target).openConnection() as HttpURLConnection
                 c.connectTimeout = 15000
                 c.readTimeout = 30000
@@ -238,6 +242,10 @@ class MainActivity : AppCompatActivity() {
                 val stream = if (code >= 400) c.errorStream else c.inputStream
                 val mime = (c.contentType ?: "application/octet-stream").substringBefore(";").trim()
                 val headers = mapOf("Access-Control-Allow-Origin" to "*")
+                if (fps > 0 && code < 400 && stream != null) {
+                    val patched = patchSwfFps(stream.use { it.readBytes() }, fps)
+                    return WebResourceResponse(mime, "utf-8", code, "OK", headers, java.io.ByteArrayInputStream(patched))
+                }
                 return WebResourceResponse(mime, "utf-8", code, "OK", headers, stream)
             }
         } catch (e: Exception) {
@@ -245,6 +253,46 @@ class MainActivity : AppCompatActivity() {
                 java.io.ByteArrayInputStream((e.message ?: "erro").toByteArray()))
         }
         return null
+    }
+
+    private fun jsLog(msg: String) {
+        handler.post { webView.evaluateJavascript("window.hostLog&&hostLog(" + org.json.JSONObject.quote(msg) + ")", null) }
+    }
+
+    // Troca a taxa de quadros do SWF principal (experimental). Aceita FWS e CWS; ZWS (LZMA) fica como esta.
+    private fun patchSwfFps(data: ByteArray, fps: Int): ByteArray {
+        try {
+            if (data.size < 20 || data[1] != 'W'.code.toByte() || data[2] != 'S'.code.toByte()) { jsLog("FPS: arquivo nao e SWF"); return data }
+            var b = data
+            when (data[0].toInt().toChar()) {
+                'F' -> {}
+                'C' -> {
+                    val inf = java.util.zip.Inflater()
+                    inf.setInput(data, 8, data.size - 8)
+                    val out = java.io.ByteArrayOutputStream()
+                    val buf = ByteArray(65536)
+                    while (!inf.finished()) {
+                        val n = inf.inflate(buf)
+                        if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break
+                        out.write(buf, 0, n)
+                    }
+                    inf.end()
+                    b = data.copyOfRange(0, 8) + out.toByteArray()
+                    b[0] = 'F'.code.toByte()
+                }
+                else -> { jsLog("FPS: SWF comprimido em LZMA, nao consegui alterar (continua em 24)"); return data }
+            }
+            val nbits = (b[8].toInt() shr 3) and 31
+            val off = 8 + (5 + 4 * nbits + 7) / 8
+            val old = b[off + 1].toInt() and 0xFF
+            b[off] = 0
+            b[off + 1] = fps.coerceIn(1, 120).toByte()
+            jsLog("FPS: taxa do jogo alterada de $old para $fps")
+            return b
+        } catch (e: Exception) {
+            jsLog("FPS: falhou (" + e.message + "), continua em 24")
+            return data
+        }
     }
 
     private fun saveCookies(target: String, c: HttpURLConnection) {

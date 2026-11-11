@@ -1,3 +1,7 @@
+#id 2026-11-11-c
+#titulo 30 FPS experimental
+- Caixa "30 FPS (experimental)" na página do jogo: o app troca a taxa do jogo de 24 para 30. O jogo fica cerca de 25% mais rápido; desmarque e toque em Recarregar para voltar ao normal
+
 #id 2026-11-11-b
 #titulo Jogo em tela cheia e mais leve
 - Botão Tela cheia: esconde o painel, gira para paisagem e some com as barras do sistema; o botão Voltar do celular sai da tela cheia

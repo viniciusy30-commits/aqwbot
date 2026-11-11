@@ -25,6 +25,7 @@ body.fs #sair{display:block}
   <option value="medium">Qualidade média</option>
   <option value="high">Qualidade alta</option>
  </select>
+ <label><input type="checkbox" id="f30"> 30 FPS (experimental)</label>
  <button id="go">Recarregar</button>
  <button id="dg">Diagnóstico</button>
 </div>
@@ -58,6 +59,7 @@ var DEF_SWF='https://game.aq.com/game/gamefiles/Loader4.swf?ver=a';
 $('swf').value=q.get('swf')||DEF_SWF;
 $('sock').value=ls('sock')||'';
 $('q').value=ls('quality')||'low';
+$('f30').checked=ls('f30')==='1';
 function viaProxy(u){var x=new URL(u);return location.origin+(x.protocol==='http:'?'/ph/':'/p/')+x.host+x.pathname+x.search;}
 var player=null;
 (function(){
@@ -93,11 +95,12 @@ function proxies(){
 }
 function loadGame(){
   var swf=$('swf').value.trim();
-  ls('swf',swf);ls('sock',$('sock').value);ls('quality',$('q').value);
+  ls('swf',swf);ls('sock',$('sock').value);ls('quality',$('q').value);ls('f30',$('f30').checked?'1':'0');
   if(!window.RufflePlayer){hostLog('Ruffle ainda não carregou','e');return;}
   var g=$('game');g.innerHTML='';
   player=window.RufflePlayer.newest().createPlayer();g.appendChild(player);
   var url=/^https?:/.test(swf)?viaProxy(swf):swf;
+  if($('f30').checked)url+=(url.indexOf('?')<0?'?':'&')+'aqwfps=30';
   hostLog('carregando '+url+' (qualidade '+$('q').value+')');
   player.load({url:url,autoplay:'on',unmuteOverlay:'hidden',allowScriptAccess:true,logLevel:'warn',
     quality:$('q').value,scale:'showAll',letterbox:'on',contextMenu:'off',showSwfDownload:false,
