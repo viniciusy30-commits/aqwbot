@@ -213,9 +213,10 @@ class MainActivity : AppCompatActivity() {
             if (path == "/host.html") {
                 return WebResourceResponse("text/html", "utf-8", assets.open("host.html"))
             }
-            if (path.startsWith("/p/") && request.method == "GET") {
-                val rest = path.removePrefix("/p/")
-                val target = "https://" + rest + (uri.encodedQuery?.let { "?$it" } ?: "")
+            if ((path.startsWith("/p/") || path.startsWith("/ph/")) && request.method == "GET") {
+                val http = path.startsWith("/ph/")
+                val rest = path.removePrefix(if (http) "/ph/" else "/p/")
+                val target = (if (http) "http://" else "https://") + rest + (uri.encodedQuery?.let { "?$it" } ?: "")
                 val c = URL(target).openConnection() as HttpURLConnection
                 c.connectTimeout = 15000
                 c.readTimeout = 30000
