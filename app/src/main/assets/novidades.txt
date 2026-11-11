@@ -1,5 +1,5 @@
 #id 2026-11-11-mod
-#titulo Cliente modificado do jogo (primeiro passo)
+#titulo Cliente modificado do jogo (opcional, desligado por padrão)
 - O app agora serve uma versão modificada do Game.swf com funções para ler e comandar o jogo por dentro (vida, monstros, mapa, ações)
 - Diagnóstico: campo de caminho com Ler, Chaves, Tipo e Dump, e botão Cliente mod? para conferir se está ativo
 - Dump salva um arquivo que vai junto no Exportar arquivos do jogo, para montar os bots em cima dos nomes reais

@@ -152,8 +152,11 @@ add_method('aqwInstall',0,A.build())
 for name,idx in new:
     G['traits'].append(dict(name=q(name),kind=1,attr=0,disp=0,method=idx))
 # gancho: no inicio de Game.onAddedToStage
-pre=bytes([0xD0,0x4F])+__import__('swf').w30(q('aqwInstall'))+bytes([0])
+mnb=__import__('swf').w30(q('aqwInstall'))
+k=3+len(mnb)
+pre=bytes([0xD0,0x4F])+mnb+bytes([0, 0x10,1,0,0, 0x29])
 hb['code']=pre+hb['code']
+hb['exc']=[(0,k,k+4,0,0)]
 hb['maxstack']=max(hb['maxstack'],2)
 ab=abcp.write(a)
 # remonta o SWF

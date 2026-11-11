@@ -271,9 +271,12 @@ class MainActivity : AppCompatActivity() {
     private val modOrigSha = "5590293fc30337c8d5ca6c7d4e518843cbecf802ff6e3b8c4d875d82dee9f49d"
     private val modOrigSize = 2812559
 
+    @Volatile private var clientMod = false
+
     private fun applyClientMod(b: ByteArray): ByteArray {
         try {
             if (b.size < 1000000) return b
+            if (!clientMod) { jsLog("CLIENTE MOD: desligado (Game.swf original)"); return b }
             val sha = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
             if (b.size != modOrigSize || sha != modOrigSha) {
                 jsLog("CLIENTE MOD: este Game.swf nao e a versao analisada (" + b.size + " bytes); nao apliquei a modificacao")
@@ -418,6 +421,11 @@ class MainActivity : AppCompatActivity() {
         @android.webkit.JavascriptInterface
         fun exportFiles() {
             if (localLoaded) runOnUiThread { exportSwfs() }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun setMod(on: Boolean) {
+            if (localLoaded) clientMod = on
         }
 
         @android.webkit.JavascriptInterface
