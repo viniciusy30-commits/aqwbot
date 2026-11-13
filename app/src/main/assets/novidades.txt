@@ -1,11 +1,7 @@
-#id 2026-11-12-skua
-#titulo Skua Mobile: interface e funções do Skua no celular
-- Nova interface igual à do Skua: barra de menus (Scripts, Options, Helpers, Tools, Skills, Packets, Bank, Logs, Plugins), barra rápida com Jump e Auto, e janela do Bot com gaveta lateral
-- 20 telas: Scripts, Get Scripts, Game Options, Application, CoreBots, Themes, Runtime, Fast Travel, Current Drops, Loader, Grabber, Stats, Console, Advanced Skills, Packet Spammer, Packet Logger, Logs, Plugins, Diagnostics e About
-- Núcleo do Skua em JavaScript: Bot.Player, Map, Monsters, Kill, Hunt, Skills (sintaxe Advanced Skills), Quests, Shops, Inventory, Bank, Drops, Auras, Options e Send
-- Scripts em JavaScript assíncrono, por exemplo await Bot.Kill.Monster("Slime"); salve, importe e exporte seus scripts
-- Pacotes do servidor chegam ao script (drops, mortes, missões); botão Voltar fecha a janela do Bot
-- Precisa do Cliente modificado ligado (Options > Application) e de estar dentro de um mapa
+#id 2026-11-13-a
+#titulo Eventos do Skua completos
+- Novos eventos nos scripts: CellChanged, QuestAccepted, TryBuyItem, Logout, RunToArea, PlayerAFK e QuestTurnedIn, iguais ao Skua original
+- Também: Self/Target.GetAura e TryGetAura, Monsters.GetCellMonsters, Bot.Schedule, Manager.StopScriptAsync, Flash, GameProxy, OptionDictionary e CachedDictionary; ScriptStopping recebe o erro
 
 #id 2026-10-30-a
 #titulo Personagem fofinho de verdade

@@ -142,6 +142,7 @@
         if (!p) return;
         Packets.log.push({ t: Date.now(), d: dir, m: p }); if (Packets.log.length > 600) Packets.log.shift();
         Packets.subs.forEach(function (f) { try { f(dir, p); } catch (e) {} });
+        if (dir === '>>') { try { clientPacket(p); } catch (e) { Logs.add('debug', 'pacote>>: ' + e.message); } }
         if (dir === '<<') { try { handlePacket(p); } catch (e) { Logs.add('debug', 'pacote: ' + e.message); } }
         if (dir === '<<' && p.charAt(0) === '{' && Events.h.ExtensionPacketReceived && Events.h.ExtensionPacketReceived.length) { try { var pj = JSON.parse(p); if (pj && pj.t === 'xt' && pj.b) Events.emit('ExtensionPacketReceived', { params: { type: 'json', dataObj: pj.b.o } }); } catch (e) {} }
       });
@@ -149,6 +150,15 @@
   };
   W.onPacket = function (dir, txt) { Packets.feed(dir, txt); };
 
+  // eventos gerados por pacotes enviados pelo cliente (igual ao ScriptInterface do Skua)
+  function clientPacket(p) {
+    if (p.charAt(0) !== '%') return;
+    var q = p.split('%'), c = q[3];
+    if (c === 'moveToCell') Events.emit('CellChanged', { Map: Map.Name, Cell: q[5], Pad: q[6] });
+    else if (c === 'acceptQuest') { Stats.QuestsAccepted = (Stats.QuestsAccepted || 0) + 1; Events.emit('QuestAccepted', parseInt(q[5], 10)); }
+    else if (c === 'buyItem') Events.emit('TryBuyItem', { ShopID: parseInt(q[6], 10), ItemID: parseInt(q[5], 10), ShopItemID: parseInt(q[7], 10) });
+    else if (c === 'cmd' && q[5] === 'logout') Events.emit('Logout');
+  }
   function handlePacket(raw) {
     var cmd = null, o = null, str = null;
     if (raw.charAt(0) === '{') {
@@ -160,6 +170,10 @@
     switch (cmd) {
       case 'moveToArea':
         Events.emit('MapChanged', o && o.strMapName); break;
+      case 'event':
+        if (o && o.args && o.args.zoneSet) Events.emit('RunToArea', o.args.zoneSet); break;
+      case 'uotls':
+        if (str && lc(str[4] || '') === lc(Player.Username || '') && str[5] === 'afk:true') Events.emit('PlayerAFK'); break;
       case 'ct':
         var me = lc(Player.Username);
         if (o && o.p && o.p[me] && o.p[me].intHP === 0) { Stats.Deaths++; Events.emit('PlayerDeath'); }
@@ -169,7 +183,7 @@
       case 'addGoldExp':
         if (o && o.typ === 'm') { Stats.Kills++; Events.emit('MonsterKilled', o.id); } break;
       case 'ccqr':
-        if (o && o.bSuccess === 1) { Stats.QuestsCompleted++; Events.emit('QuestTurnin', o.QuestID); } break;
+        if (o && o.bSuccess === 1) { Stats.QuestsCompleted++; Events.emit('QuestTurnin', o.QuestID); Events.emit('QuestTurnedIn', o.QuestID); } break;
       case 'dropItem':
         if (o && o.items) {
           var k = Object.keys(o.items)[0], it = o.items[k]; if (!it) return;
@@ -730,9 +744,9 @@
         log('✔ "' + Runner.name + '" finalizado');
       } catch (e) {
         if (String(e && e.message) === '__SKUA_STOP__') log('■ "' + Runner.name + '" parado');
-        else log('✖ ERRO: ' + (e && e.message ? e.message : e));
+        else { Runner.err = e; log('✖ ERRO: ' + (e && e.message ? e.message : e)); }
       } finally {
-        try { Events.emit('ScriptStopping'); } catch (e) {} Runner.running = false; Skills.Stop(); Events.Clear();
+        try { Events.emit('ScriptStopping', Runner.err || null); } catch (e) {} Runner.err = null; Runner.running = false; Skills.Stop(); Events.Clear();
         if (!Auto.on) { try { W.AqwNative.keepOn(false); } catch (e) {} }
         Runner._notify();
       }

@@ -393,5 +393,29 @@
   Bot.Flash = Bot.Flash || { GetArrayObject: function (p, i) { return get(p + '.' + i); }, Call: call, GetGameObject: get, SetGameObject: set, CallGameFunction: call, Get: get, Set: set };
   Bot.InvHelper = Bot.InvHelper || { Check: function (q, n, temp) { return temp ? Bot.TempInv.Contains(q, n) : Inv.Contains(q, n); } };
   if (!('Instance' in Bot)) Bot.Instance = Bot;
+
+  // ---- paridade com a API do Skua (auditoria membro a membro) ----
+  function auraByName(list, n) { n = lc(n); var r = list.filter(function (a) { return lc(a.nam || a.Name) === n; })[0]; return r || null; }
+  [[Bot.Self, false], [Bot.Target, true]].forEach(function (x) {
+    var o = x[0], tgt = x[1];
+    o.GetAura = function (n) { return auraByName(tgt ? Bot.Auras.Target : Bot.Auras.Player, n); };
+    o.TryGetAura = function (n) { return Bot.Auras.HasAura(n, tgt) ? o.GetAura(n) : null; };
+  });
+  Au.Self = Bot.Self; Au.TargetAuras = Au.TargetAuras;
+  Mo.GetCellMonsters = function () { var d = {}; Mo.MapMonsters.forEach(function (m) { (d[m.Cell] = d[m.Cell] || []).push(m); }); return d; };
+  Bot.Initialize = function () {};
+  Bot.StopTimerAsync = async function () {};
+  Bot.Schedule = async function (delay, action) { await sleep(delay); var r = action(Bot); if (r && typeof r.then === 'function') await r; };
+  Bot.GameProxy = { Running: false, Destination: '', Start: function () { this.Running = true; dbg('GameProxy.Start: sem efeito neste cliente'); }, Stop: function () { this.Running = false; } };
+  Bot.Manager.StopScriptAsync = async function (runEvent) { W.SkuaRunner.Stop(); };
+  Object.defineProperty(Bot.Manager, 'ShouldExit', { get: function () { return Bot.ShouldExit; }, enumerable: true, configurable: true });
+  if (!('Config' in Bot.Manager)) Object.defineProperty(Bot.Manager, 'Config', { get: function () { return Bot.Config; }, enumerable: true, configurable: true });
+  Bot.Flash.FlashCall = function (fn) { return call.apply(null, arguments); };
+  Bot.Flash.FlashCallHandler = function () { return call.apply(null, arguments); };
+  Bot.Flash.GetGameObjectStatic = function (p) { return get(p); };
+  Bot.Flash.FromFlashXml = function (x) { return x; };
+  Object.defineProperty(O, 'OptionDictionary', { get: function () { var d = {}; Object.keys(I.optDefs).forEach(function (k) { d[k] = O[k]; }); return d; }, enumerable: false, configurable: true });
+  Object.defineProperty(Q, 'CachedDictionary', { get: function () { var d = {}; Q.Tree.forEach(function (q) { d[q.ID] = q; }); return d; }, enumerable: false, configurable: true });
+  Object.defineProperty(Bot.Handlers, 'CurrentHandlers', { get: function () { return HS.slice(); }, enumerable: false, configurable: true });
   W.SkuaExtraLoaded = true;
 })();
