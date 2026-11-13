@@ -143,6 +143,7 @@
         Packets.log.push({ t: Date.now(), d: dir, m: p }); if (Packets.log.length > 600) Packets.log.shift();
         Packets.subs.forEach(function (f) { try { f(dir, p); } catch (e) {} });
         if (dir === '<<') { try { handlePacket(p); } catch (e) { Logs.add('debug', 'pacote: ' + e.message); } }
+        if (dir === '<<' && p.charAt(0) === '{' && Events.h.ExtensionPacketReceived && Events.h.ExtensionPacketReceived.length) { try { var pj = JSON.parse(p); if (pj && pj.t === 'xt' && pj.b) Events.emit('ExtensionPacketReceived', { params: { type: 'json', dataObj: pj.b.o } }); } catch (e) {} }
       });
     }
   };
@@ -724,14 +725,14 @@
       try { W.AqwNative.keepOn(true); } catch (e) {}
       log('▶ "' + Runner.name + '" iniciado');
       try {
-        var fn = new Function('Bot', 'sleep', 'log', 'return (async function(){"use strict";\n' + code + '\n})();');
+        var sl = code.indexOf('/*SKUA:SLOPPY*/') === 0; var fn = new Function('Bot', 'sleep', 'log', 'return (async function(){' + (sl ? '' : '"use strict";') + '\n' + code + '\n})();');
         await fn(Bot, sleep, log);
         log('✔ "' + Runner.name + '" finalizado');
       } catch (e) {
         if (String(e && e.message) === '__SKUA_STOP__') log('■ "' + Runner.name + '" parado');
         else log('✖ ERRO: ' + (e && e.message ? e.message : e));
       } finally {
-        Runner.running = false; Skills.Stop(); Events.Clear();
+        try { Events.emit('ScriptStopping'); } catch (e) {} Runner.running = false; Skills.Stop(); Events.Clear();
         if (!Auto.on) { try { W.AqwNative.keepOn(false); } catch (e) {} }
         Runner._notify();
       }

@@ -342,7 +342,36 @@
   // handlers / flash / manager
   Bot.Handlers = Bot.Handlers || { Add: nosup('Handlers.Add'), Remove: nosup('Handlers.Remove'), Clear: function () {} };
   Bot.Manager = Bot.Manager || { get ScriptRunning() { return W.SkuaRunner.running; }, StopScript: function () { W.SkuaRunner.Stop(); } };
-  Bot.Flash = Bot.Flash || { Call: call, GetGameObject: get, SetGameObject: set, CallGameFunction: call, Get: get, Set: set };
+  // ---- recursos usados pelos Core* reais ----
+  function auraObj(list) { return list.map(function (a) { return { Name: a.nam, Value: a.val, Stack: a.val, Duration: a.dur, IsPassive: !!a.passive, nam: a.nam }; }); }
+  Bot.Self = Bot.Self || { get Auras() { return auraObj(Bot.Auras.Player); }, HasActiveAura: function (n) { return Bot.Auras.HasAura(n, false); } };
+  Bot.Target = Bot.Target || {};
+  addGet(Bot.Target, 'Auras', function () { return auraObj(Bot.Auras.Target); });
+  addFn(Bot.Target, 'HasActiveAura', function (n) { return Bot.Auras.HasAura(n, true); });
+  addGet(Hs, 'FreeSlots', function () { return Math.max(0, (Hs.Slots || 0) - (Hs.UsedSlots || 0)); });
+  addFn(Hs, 'IsEquipped', function (x) { var it = Hs.Items || []; return it.some(function (i) { return i && i.bEquip && (i.ItemID == x || String(i.sName).toLowerCase() === String(x).toLowerCase()); }); });
+  Bot.Random = Bot.Random || { Next: function (a, b) { if (b === undefined) { b = a; a = 0; } if (b === undefined) return Math.floor(Math.random() * 2147483647); return a + Math.floor(Math.random() * (b - a)); }, NextDouble: function () { return Math.random(); } };
+  Bot.Version = Bot.Version || { ToString: function () { return '1.0.0'; } };
+  var HS = [];
+  Bot.Handlers = { _h: HS,
+    RegisterHandler: function (ms, fn) { var h = { fn: fn, ms: ms, last: Date.now(), once: false }; HS.push(h); return h; },
+    RegisterOnce: function (ms, fn) { var h = { fn: fn, ms: ms, last: Date.now(), once: true }; HS.push(h); return h; },
+    Add: function (h) { HS.push(h); }, Remove: function (h) { var i = HS.indexOf(h); if (i >= 0) HS.splice(i, 1); }, Clear: function () { HS.length = 0; } };
+  var hTimer = setInterval(function () { var now = Date.now(); HS.slice().forEach(function (h) { if (now - h.last >= h.ms) { h.last = now; if (h.once) { var i = HS.indexOf(h); if (i >= 0) HS.splice(i, 1); } try { h.fn(Bot); } catch (e) {} } }); }, 250);
+  if (hTimer && hTimer.unref) hTimer.unref();
+  Bot.ShowMessageBox = Bot.ShowMessageBox || function (m, c) { Bot.Log('✉ ' + (c ? c + ': ' : '') + m); };
+  Bot.Manager = Bot.Manager || {};
+  addGet(Bot.Manager, 'ScriptRunning', function () { return W.SkuaRunner.running; });
+  addFn(Bot.Manager, 'StopScript', function () { W.SkuaRunner.Stop(); });
+  addFn(Bot.Manager, 'LoadedScript', 'Scripts/Skua.cs');
+  addFn(Bot.Manager, 'CompiledScript', '');
+  addFn(Bot.Manager, 'RestartScriptAsync', async function () { Bot.Log('⚠ Reiniciar script: reinicie o bot manualmente'); });
+  var CF = Bot.Config;
+  if (CF) {
+    CF.Options = CF.Options || []; CF.MultipleOptions = CF.MultipleOptions || {};
+    CF.Configure = CF.Configure || function () { return true; };
+  }
+  Bot.Flash = Bot.Flash || { GetArrayObject: function (p, i) { return get(p + '.' + i); }, Call: call, GetGameObject: get, SetGameObject: set, CallGameFunction: call, Get: get, Set: set };
   Bot.InvHelper = Bot.InvHelper || { Check: function (q, n, temp) { return temp ? Bot.TempInv.Contains(q, n) : Inv.Contains(q, n); } };
   if (!('Instance' in Bot)) Bot.Instance = Bot;
   W.SkuaExtraLoaded = true;
