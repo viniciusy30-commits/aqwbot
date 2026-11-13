@@ -206,14 +206,19 @@ body.fs #game{position:fixed;inset:0;z-index:5}
     'Class do Skua (Advanced Skills)': "// Usa o set de skills da biblioteca do Skua\nBot.Skills.UseLibrary('ArchPaladin', 'Solo');\nwhile (!Bot.ShouldExit) { await Bot.Kill.Monster('*'); }"
   };
   function scriptsStore() { return jget('skua.scripts', { 'Meu script': EX['Matar monstros (loop)'] }); }
-  function runCurrentScript() { var s = scriptsStore(), n = ls('skua.curScript') || Object.keys(s)[0]; if (!s[n]) return toast('Nenhum script selecionado'); W.SkuaRunner.Start(s[n], n); }
+  function startScript(text, name) {
+    if (W.SkuaCS && W.SkuaCS.isCS(text)) return W.SkuaCS.run(text, name, W.SkuaCS.fetchRepo).catch(function (e) { toast('Erro: ' + e.message); });
+    return W.SkuaRunner.Start(text, name);
+  }
+  W.SkuaStartScript = startScript;
+  function runCurrentScript() { var s = scriptsStore(), n = ls('skua.curScript') || Object.keys(s)[0]; if (!s[n]) return toast('Nenhum script selecionado'); startScript(s[n], n); }
   V('scripts', 'Scripts', function (b) {
     var st = scriptsStore(), name = ls('skua.curScript'); if (!st[name]) name = Object.keys(st)[0];
     var sel = h('select', { class: 'fld' }), nm = h('input', { class: 'fld', placeholder: 'Nome do script' }), ta = h('textarea', { class: 'fld', rows: 16, spellcheck: 'false' });
     function fill() { sel.innerHTML = ''; Object.keys(st).forEach(function (k) { sel.append(h('option', { value: k, selected: k === name }, k)); }); nm.value = name || ''; ta.value = st[name] || ''; }
     sel.onchange = function () { name = sel.value; ls('skua.curScript', name); nm.value = name; ta.value = st[name]; };
     function save() { var n = nm.value.trim() || 'Sem nome'; if (n !== name && st[name] !== undefined && sel.value === name && false) delete st[name]; st[n] = ta.value; name = n; jset('skua.scripts', st); ls('skua.curScript', n); fill(); toast('Salvo'); }
-    var file = h('input', { type: 'file', accept: '.js,.txt,text/plain', style: 'display:none' });
+    var file = h('input', { type: 'file', accept: '.js,.cs,.txt,text/plain', style: 'display:none' });
     file.onchange = function () { var f = file.files[0]; if (!f) return; var r = new FileReader(); r.onload = function () { nm.value = f.name.replace(/\.[^.]+$/, ''); ta.value = r.result; save(); }; r.readAsText(f); };
     var ex = h('select', { class: 'fld' }, h('option', { value: '' }, 'Exemplos...'), Object.keys(EX).map(function (k) { return h('option', { value: k }, k); }));
     ex.onchange = function () { if (ex.value) { nm.value = ex.value; ta.value = EX[ex.value]; ex.value = ''; } };
@@ -221,26 +226,46 @@ body.fs #game{position:fixed;inset:0;z-index:5}
       card('Script', h('div', { class: 'row' }, h('div', { class: 'grow' }, sel), btn('Novo', function () { nm.value = 'Novo script'; ta.value = '// escreva seu script\nawait Bot.Sleep(100);'; }, 'ghost sm')),
         h('div', { class: 'row' }, h('div', { class: 'grow' }, nm), h('div', { class: 'grow' }, ex)), ta,
         h('div', { class: 'row' },
-          btn('▶ Start', function () { save(); W.SkuaRunner.Start(ta.value, nm.value); }), btn('■ Stop', function () { W.SkuaRunner.Stop(); }, 'red'),
+          btn('▶ Start', function () { save(); startScript(ta.value, nm.value); }), btn('■ Stop', function () { W.SkuaRunner.Stop(); }, 'red'),
           btn('Salvar', save, 'ghost'), btn('Importar', function () { file.click(); }, 'ghost'),
           btn('Excluir', function () { if (Object.keys(st).length < 2) return toast('Mantenha ao menos um script'); delete st[name]; jset('skua.scripts', st); name = Object.keys(st)[0]; ls('skua.curScript', name); fill(); }, 'ghost'),
-          btn('Exportar', function () { dl((nm.value || 'script') + '.js', ta.value); }, 'ghost')), file),
+          btn('Exportar', function () { dl((nm.value || 'script') + (W.SkuaCS && W.SkuaCS.isCS(ta.value) ? '.cs' : '.js'), ta.value); }, 'ghost')), file),
       card('Referência rápida', h('pre', { class: 'log' }, 'Bot.Player  Bot.Map  Bot.Monsters  Bot.Combat  Bot.Kill  Bot.Hunt\nBot.Skills  Bot.Quests  Bot.Shops  Bot.Inventory  Bot.Bank  Bot.TempInv\nBot.Drops  Bot.Wait  Bot.Auras  Bot.Auto  Bot.Events  Bot.Options  Bot.Config\n\nawait Bot.Map.Join("battleon","Enter","Spawn")\nawait Bot.Kill.Monster("Slime")\nawait Bot.Kill.ForItem("Slime","Slime Goo",10)\nawait Bot.Quests.EnsureAccept(123)\nBot.Skills.StartAdvanced("3 | 1 H<50 | 2 W500", 250)\nBot.Events.On("MonsterKilled", id => Bot.Log("morreu "+id))')));
     fill();
   });
 
   // ---------- Get Scripts ----------
   V('getscripts', 'Get Scripts', function (b) {
-    var url = h('input', { class: 'fld', placeholder: 'https://raw.githubusercontent.com/.../script.js' });
-    b.append(card('Importar de uma URL (script em JavaScript)', url, h('div', { class: 'row' }, btn('Baixar e salvar', function () {
-      if (!url.value) return;
-      fetch(url.value).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }).then(function (t) {
-        var st = scriptsStore(), n = decodeURIComponent(url.value.split('/').pop().split('?')[0]).replace(/\.[^.]+$/, '') || 'importado'; st[n] = t; jset('skua.scripts', st); ls('skua.curScript', n); toast('Importado: ' + n);
-      }).catch(function (e) { toast('Falhou: ' + e.message); });
-    }))), card('Observação', h('div', { class: 'lbl' }, 'Os scripts do Skua original são em C# (.cs) e não rodam aqui. Scripts para este app são JavaScript assíncrono usando o objeto Bot.')));
-    b.append(card('Exemplos prontos', Object.keys(EX).map(function (k) {
-      return h('div', { class: 'row' }, h('div', { class: 'grow' }, k), btn('Adicionar', function () { var st = scriptsStore(); st[k] = EX[k]; jset('skua.scripts', st); toast('Adicionado'); }, 'sm'));
-    })));
+    var url = h('input', { class: 'fld', placeholder: 'https://raw.githubusercontent.com/.../script.cs ou .js' });
+    var q = h('input', { class: 'fld', placeholder: 'Buscar no repositório (ex: farm, dragon, legion)' });
+    var list = h('div', { class: 'lbl' }, 'Toque em "Carregar lista" (precisa de internet).'), all = null;
+    function saveScript(n, t) { var st = scriptsStore(); st[n] = t; jset('skua.scripts', st); ls('skua.curScript', n); toast('Importado: ' + n); }
+    function render() {
+      list.innerHTML = ''; if (!all) return;
+      var t = q.value.trim().toLowerCase(), r = all.filter(function (p) { return !t || p.toLowerCase().indexOf(t) >= 0; }).slice(0, 80);
+      if (!r.length) { list.append(h('div', { class: 'lbl' }, 'Nada encontrado')); return; }
+      r.forEach(function (p) {
+        list.append(h('div', { class: 'row' }, h('div', { class: 'grow lbl' }, p.replace(/^Scripts\//, '')), btn('Baixar', function () {
+          W.SkuaCS.fetchRepo(p).then(function (t) { saveScript(p.split('/').pop().replace(/\.[^.]+$/, ''), t); }).catch(function (e) { toast('Falhou: ' + e.message); });
+        }, 'ghost sm')));
+      });
+      if (all.filter(function (p) { return !t || p.toLowerCase().indexOf(t) >= 0; }).length > 80) list.append(h('div', { class: 'lbl' }, 'Mostrando 80; refine a busca.'));
+    }
+    q.oninput = render;
+    b.append(card('Repositório de scripts do Skua (BrenoHenrike/Scripts)', q,
+      h('div', { class: 'row' }, btn('Carregar lista', function () {
+        list.textContent = 'Carregando…';
+        fetch('https://api.github.com/repos/BrenoHenrike/Scripts/git/trees/Skua?recursive=1').then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function (j) {
+          all = (j.tree || []).filter(function (e) { return e.type === 'blob' && /\.cs$/.test(e.path) && !/^Scripts\/(Core|Skua|Tools|Tests)/i.test(e.path) && !/\/Core[A-Z]\w*\.cs$/.test(e.path); }).map(function (e) { return e.path; }); render();
+        }).catch(function (e) { list.textContent = 'Falhou: ' + e.message; });
+      })), list),
+      card('Importar de uma URL', url, h('div', { class: 'row' }, btn('Baixar e salvar', function () {
+        if (!url.value) return;
+        fetch(url.value).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }).then(function (t) {
+          saveScript(decodeURIComponent(url.value.split('/').pop().split('?')[0]).replace(/\.[^.]+$/, '') || 'importado', t);
+        }).catch(function (e) { toast('Falhou: ' + e.message); });
+      }))),
+      card('Observação', h('div', { class: 'lbl' }, 'Scripts C# (.cs) do Skua são convertidos para rodar aqui. Includes simples são baixados do GitHub; as bibliotecas Core* completas (CoreFarms, CoreAdvanced...) ainda não foram portadas e avisam no log.')));
   });
 
   // ---------- Game Options ----------

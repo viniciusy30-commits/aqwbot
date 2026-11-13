@@ -739,5 +739,5 @@
     Stop: function () { run.stop = true; Skills.Stop(); }
   };
 
-  W.Bot = Bot; W.SkuaRunner = Runner; W.SkuaInternal = { run: run, snap: snap };
+  W.Bot = Bot; W.SkuaRunner = Runner; W.SkuaInternal = { run: run, snap: snap, opt: opt, optDefs: optDefs, check: check, lc: lc, itemsAt: itemsAt, find: find, qty: qty, Logs: Logs, Events: Events };
 })();

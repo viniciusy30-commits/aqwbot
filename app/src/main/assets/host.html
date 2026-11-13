@@ -272,7 +272,7 @@ $('bot').onclick=function(){if(!bot.on&&!aqwNeed())return;botSet(!bot.on);};
 // ===== Skua (port JS + interface) =====
 (function(){
   function load(src,next){var s=document.createElement('script');s.src=src;s.onload=next||null;s.onerror=function(){hostLog(src+' não carregou','e');};document.head.appendChild(s);}
-  load('skua.js',function(){load('skua-ui.js');});
+  load('skua.js',function(){load('skua-extra.js',function(){load('skua-cs.js',function(){load('skua-ui.js');});});});
 })();
 window.RufflePlayer=window.RufflePlayer||{};
 window.RufflePlayer.config={polyfills:false,autoplay:'on',unmuteOverlay:'hidden',logLevel:'warn'};

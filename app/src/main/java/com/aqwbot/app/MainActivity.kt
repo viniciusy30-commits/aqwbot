@@ -195,6 +195,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (!url.startsWith("http")) url = "https://$url"
         localLoaded = false
+        setNativeChrome(true)
         if (!running) setStatus("Carregando…", R.color.warn)
         webView.loadUrl(url)
     }
@@ -226,6 +227,7 @@ class MainActivity : AppCompatActivity() {
             if (swf.isNotEmpty()) u.appendQueryParameter("swf", swf)
             localLoaded = true
             setStatus("Página local (Ruffle + ponte)", R.color.warn)
+            setNativeChrome(false)
             webView.loadUrl(u.build().toString())
         } catch (e: Exception) {
             setStatus("Ponte falhou: ${e.message}", R.color.bad)
@@ -241,7 +243,7 @@ class MainActivity : AppCompatActivity() {
             if (path == "/host.html") {
                 return WebResourceResponse("text/html", "utf-8", assets.open("host.html"))
             }
-            if (path == "/skua.js" || path == "/skua-ui.js") {
+            if (path == "/skua.js" || path == "/skua-ui.js" || path == "/skua-extra.js" || path == "/skua-cs.js") {
                 return WebResourceResponse("application/javascript", "utf-8", assets.open(path.removePrefix("/")))
             }
             if (path == "/skills.txt") {
@@ -405,6 +407,25 @@ class MainActivity : AppCompatActivity() {
     private var fullscreen = false
     private var origPad = intArrayOf(0, 0, 0, 0)
 
+    @Volatile private var chromeHidden = false
+
+    // Modo local: só a interface do Skua aparece; o painel nativo (URL, teclas, Iniciar/Parar) some.
+    private fun setNativeChrome(visible: Boolean) {
+        val root = webView.parent as ViewGroup
+        if (!visible && !chromeHidden && !fullscreen) origPad = intArrayOf(root.paddingLeft, root.paddingTop, root.paddingRight, root.paddingBottom)
+        chromeHidden = !visible
+        if (fullscreen) return
+        for (i in 0 until root.childCount) {
+            val v = root.getChildAt(i)
+            if (v !== webView) v.visibility = if (visible) View.VISIBLE else View.GONE
+        }
+        if (visible) root.setPadding(origPad[0], origPad[1], origPad[2], origPad[3]) else root.setPadding(0, 0, 0, 0)
+        (webView.layoutParams as? android.widget.LinearLayout.LayoutParams)?.let {
+            it.topMargin = if (visible) (10 * resources.displayMetrics.density).toInt() else 0
+            webView.layoutParams = it
+        }
+    }
+
     // Tela cheia: esconde o painel do app, gira para paisagem e some com as barras do sistema.
     private fun setFullscreen(on: Boolean) {
         val root = webView.parent as ViewGroup
@@ -412,11 +433,11 @@ class MainActivity : AppCompatActivity() {
         fullscreen = on
         for (i in 0 until root.childCount) {
             val v = root.getChildAt(i)
-            if (v !== webView) v.visibility = if (on) View.GONE else View.VISIBLE
+            if (v !== webView) v.visibility = if (on || chromeHidden) View.GONE else View.VISIBLE
         }
-        if (on) root.setPadding(0, 0, 0, 0) else root.setPadding(origPad[0], origPad[1], origPad[2], origPad[3])
+        if (on || chromeHidden) root.setPadding(0, 0, 0, 0) else root.setPadding(origPad[0], origPad[1], origPad[2], origPad[3])
         (webView.layoutParams as? android.widget.LinearLayout.LayoutParams)?.let {
-            it.topMargin = if (on) 0 else (10 * resources.displayMetrics.density).toInt()
+            it.topMargin = if (on || chromeHidden) 0 else (10 * resources.displayMetrics.density).toInt()
             webView.layoutParams = it
         }
         requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
