@@ -53,7 +53,7 @@ body.fs #sair{display:block}
 <script>
 var q=new URLSearchParams(location.search);
 var PORT=q.get('port'),TOKEN=q.get('token');
-window.hostLog=null;var logEl=document.getElementById('log'),logOn=false,buf=[];
+var logEl=document.getElementById('log'),logOn=false,buf=[];
 var NOISE=/focus_tracker|stub\.rs|library\.rs|Unknown device font|Focus is now/;
 var modBuf=[];
 function hostLog(m,c){
@@ -63,7 +63,6 @@ function hostLog(m,c){
   buf.push([m,c]);if(buf.length>300)buf.shift();
   if(logOn)draw(m,c);
 }
-window.hostLog=hostLog;
 function draw(m,c){var d=document.createElement('div');if(c)d.className=c;d.textContent=m;logEl.appendChild(d);while(logEl.childNodes.length>300)logEl.removeChild(logEl.firstChild);logEl.scrollTop=logEl.scrollHeight;}
 ['log','info','warn','error'].forEach(function(k){var o=console[k];console[k]=function(){try{hostLog('['+k+'] '+Array.prototype.slice.call(arguments).join(' '),k=='error'?'e':k=='warn'?'w':'');}catch(e){}o.apply(console,arguments);};});
 window.addEventListener('error',function(e){hostLog('ERRO: '+e.message,'e');});
