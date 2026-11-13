@@ -713,9 +713,17 @@
       var nk = Object.keys(args.named), npos = pos.length;
       var pick = function (L) { if (!L) return null; var best = null; for (var q = 0; q < L.length; q++) { var okk = nk.every(function (k) { return L[q].indexOf(k) >= 0; }); if (okk && L[q].length >= npos) return L[q]; if (okk && !best) best = L[q]; } return best; };
       var sig = userKey && pick(this.sigs[userKey]);
-      if (!sig && !/^(this\.)?Bot\b/.test(callee)) { var mm2 = /([A-Za-z_]\w*)$/.exec(callee); if (mm2) { sig = pick(GSIGS[mm2[1]]); if (!sig) this.unres.push(mm2[1]); } }
+      var dropNamed = false;
+      var bm = /^(?:this\.)?Bot\.(.+)$/.exec(callee);
+      if (!sig && bm) {
+        var BS = { 'Map.Jump': ['cell', 'pad', 'autoCorrect', 'clientOnly'], 'Map.Join': ['map', 'cell', 'pad', 'ignoreCheck', 'autoCorrect'], 'Player.WalkTo': ['x', 'y', 'speed'], 'Send.ClientPacket': ['packet', 'type'], 'Log': ['message'] };
+        var bsig = BS[bm[1]];
+        if (bsig && nk.every(function (k) { return bsig.indexOf(k) >= 0; })) sig = bsig;
+        else { dropNamed = true; }
+      }
+      if (!sig && !bm) { var mm2 = /([A-Za-z_]\w*)$/.exec(callee); if (mm2) { sig = pick(GSIGS[mm2[1]]); if (!sig) this.unres.push(mm2[1]); } }
       if (sig) { var out = pos.slice(); Object.keys(args.named).forEach(function (k) { var ix = sig.indexOf(k); if (ix < 0) ix = out.length; while (out.length < ix) out.push('undefined'); out[ix] = args.named[k]; }); pos = out; }
-      else { var parts = Object.keys(args.named).map(function (k) { return k + ': ' + args.named[k]; }); pos = pos.concat(['{__named: true, ' + parts.join(', ') + '}']); }
+      else if (!dropNamed) { var parts = Object.keys(args.named).map(function (k) { return k + ': ' + args.named[k]; }); pos = pos.concat(['{__named: true, ' + parts.join(', ') + '}']); }
     }
     var call = callee + '(' + pos.join(', ') + ')';
     var res = this.asyncOk ? '(await ' + call + ')' : call;
