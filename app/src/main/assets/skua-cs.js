@@ -698,12 +698,14 @@
     this.expect(')');
     return { pos: pos, named: named, hasNamed: hasNamed, outs: outs };
   };
+  var KWTYPES = { int: 1, string: 1, long: 1, double: 1, float: 1, bool: 1, char: 1, object: 1, byte: 1, short: 1, uint: 1, ulong: 1, decimal: 1 };
   PP.refName = function (n) { // como emitir uma variável
+    if (KWTYPES[n]) return TYPEMAP[n] || n;
     if (this.isLocal(n)) return n;
     if (this.cls) { if (this.cls.members.stat[n]) return this.cls.name + '.' + n; if (this.cls.members.inst[n]) return 'this.' + n; }
     return TYPEMAP[n] || n;
   };
-  PP.isMemberCall = function (n) { return !this.isLocal(n) && this.cls && (this.cls.members.inst[n] || this.cls.members.stat[n]); };
+  PP.isMemberCall = function (n) { return !KWTYPES[n] && !this.isLocal(n) && this.cls && (this.cls.members.inst[n] || this.cls.members.stat[n]); };
   PP.emitCall = function (callee, args, userKey) {
     var pos = args.pos;
     if (args.hasNamed) {
@@ -977,6 +979,7 @@
   def(AP, 'Exists', function (f) { return this.some(f); });
   def(AP, 'TrueForAll', function (f) { return this.every(f); });
   def(AP, 'ToList', function () { return Array.from(this); });
+  def(AP, 'ToHashSet', function (cmp) { var ic = cmp && cmp.ic; var seen = {}; var out = []; Array.from(this).forEach(function (x) { var k = ic && typeof x === 'string' ? x.toLowerCase() : x; if (ic) { if (seen[k]) return; seen[k] = 1; out.push(x); } else if (out.indexOf(x) < 0) out.push(x); }); return new CsHashSet(out); });
   def(AP, 'ToArray', function () { return Array.from(this); });
   def(AP, 'Count', function (f) { return f ? this.filter(f).length : this.length; });
   def(AP, 'Sum', function (f) { return this.reduce(function (s, x) { return s + (f ? f(x) : x); }, 0); });
@@ -1073,11 +1076,37 @@
     CsConsole: { WriteLine: function (x) { W.Bot.Log(__str(x)); }, Write: function (x) { W.Bot.Log(__str(x)); }, ReadLine: function () { return ''; } },
     CsThread: { Sleep: Sleep }, CsTask: { Delay: Sleep, Run: function (f) { return f(); }, CompletedTask: null },
     CsEnv: { get TickCount() { return Date.now() % 2147483647; }, NewLine: '\n' },
-    CsDateTime: { get Now() { return new Date(); }, get UtcNow() { return new Date(); } },
+    CsDateTime: (function () {
+      function D(y, m, d, h, mi, sec) { if (y === undefined) return new Date(); return new Date(y, (m || 1) - 1, d || 1, h || 0, mi || 0, sec || 0); }
+      Object.defineProperty(D, 'Now', { get: function () { return new Date(); } });
+      Object.defineProperty(D, 'UtcNow', { get: function () { return new Date(); } });
+      Object.defineProperty(D, 'Today', { get: function () { var t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); } });
+      return D;
+    })(),
     CsEnumerable: { Range: function (a, n) { var o = []; for (var i = 0; i < n; i++) o.push(a + i); return o; }, Repeat: function (x, n) { return new Array(n).fill(x); }, Empty: function () { return []; } },
     CsGuid: { NewGuid: function () { return Math.random().toString(16).slice(2); } }, CsTimeSpan: { FromSeconds: function (s) { return s * 1000; }, FromMilliseconds: function (s) { return s; }, FromMinutes: function (m) { return m * 60000; } },
     CsPath: { Combine: function () { return [].slice.call(arguments).join('/'); }, GetFileName: function (p) { return String(p).split('/').pop(); }, GetFullPath: function (p) { return String(p); }, GetDirectoryName: function (p) { var a = String(p).split('/'); a.pop(); return a.join('/'); }, GetExtension: function (p) { var m = /\.[^./]*$/.exec(String(p)); return m ? m[0] : ''; }, GetFileNameWithoutExtension: function (p) { return String(p).split('/').pop().replace(/\.[^.]*$/, ''); } },
-    CsFile: { Exists: function () { return false; } }, CsRegex: { IsMatch: function (s, r) { return new RegExp(r).test(s); }, Replace: function (s, r, t) { return String(s).replace(new RegExp(r, 'g'), t); } },
+    StringComparer: { OrdinalIgnoreCase: { ic: true }, InvariantCultureIgnoreCase: { ic: true }, CurrentCultureIgnoreCase: { ic: true }, Ordinal: { ic: false }, InvariantCulture: { ic: false }, CurrentCulture: { ic: false } },
+    CsFile: (function () {
+      var mem = {};
+      function key(p) { return 'skua.file.' + String(p); }
+      function rd(p) { if (p in mem) return mem[p]; try { var v = localStorage.getItem(key(p)); return v === null || v === undefined ? null : v; } catch (e) { return null; } }
+      function wr(p, t) { mem[p] = String(t); try { localStorage.setItem(key(p), String(t)); } catch (e) {} }
+      return {
+        Exists: function (p) { return rd(p) !== null; },
+        ReadAllText: function (p) { var v = rd(p); return v === null ? '' : v; },
+        ReadAllLines: function (p) { var v = rd(p); return v === null ? [] : v.split(/\r?\n/); },
+        ReadLines: function (p) { var v = rd(p); return v === null ? [] : v.split(/\r?\n/); },
+        WriteAllText: function (p, t) { wr(p, t); },
+        WriteAllLines: function (p, l) { wr(p, [].slice.call(l).join('\n')); },
+        AppendAllText: function (p, t) { wr(p, (rd(p) || '') + t); },
+        AppendAllLines: function (p, l) { wr(p, (rd(p) || '') + [].slice.call(l).join('\n') + '\n'); },
+        AppendText: function (p) { return { WriteLine: function (t) { wr(p, (rd(p) || '') + (t === undefined ? '' : t) + '\n'); }, Write: function (t) { wr(p, (rd(p) || '') + t); }, Dispose: function () {}, Close: function () {}, Flush: function () {} }; },
+        CreateDirectory: function () {}, GetFiles: function () { return []; }, GetDirectories: function () { return []; },
+        Delete: function (p) { delete mem[p]; try { localStorage.removeItem(key(p)); } catch (e) {} },
+        Copy: function () {}, Move: function () {}
+      };
+    })(), CsRegex: { IsMatch: function (s, r) { return new RegExp(r).test(s); }, Replace: function (s, r, t) { return String(s).replace(new RegExp(r, 'g'), t); } },
     CsInterlocked: { Increment: function (x) { return x + 1; } }
   };
   function enumProxy(name) { return new Proxy({}, { get: function (t, k) { return typeof k === 'string' ? k : undefined; } }); }
@@ -1202,7 +1231,8 @@
     W.__missing = W.__missing || {};
     return new Proxy({}, {
       has: function (t, k) { return typeof k === 'string' && !(k in W) && k !== 'arguments' && k !== 'Bot' && k !== 'sleep' && k !== 'log'; },
-      get: function (t, k) { if (k === Symbol.unscopables) return undefined; W.__missing['(tipo) ' + String(k)] = 1; return stubOf(String(k)); }
+      get: function (t, k) { if (k === Symbol.unscopables) return undefined; if (k in t) return t[k]; W.__missing['(tipo) ' + String(k)] = 1; return stubOf(String(k)); },
+      set: function (t, k, v) { t[k] = v; return true; }
     });
   }
   async function compileFull(src, fetchText, onProgress, selfPath) {

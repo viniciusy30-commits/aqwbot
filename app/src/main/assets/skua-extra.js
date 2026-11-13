@@ -223,7 +223,7 @@
 
   // ---------- Bank / House ----------
   var B = Bot.Bank;
-  addGet(B, 'Loaded', function () { return (get('world.bankinfo.items.length') || 0) > 0 || get('world.bankinfo.bLoaded') === true; });
+  if (!('Loaded' in B)) { var bankForced = false; Object.defineProperty(B, 'Loaded', { get: function () { return bankForced || (get('world.bankinfo.items.length') || 0) > 0 || get('world.bankinfo.bLoaded') === true; }, set: function (v) { bankForced = !!v; }, enumerable: true, configurable: true }); }
   addFn(B, 'Load', async function () { if (B.Loaded) return true; call('world.sendLoadBankRequest'); return Wt.ForBankLoad(); });
   addFn(B, 'EnsureToInventory', async function (q) { await B.Load(); for (var i = 0; i < 5; i++) { if (Inv.Contains(q)) return true; await B.ToInventory(q); await sleep(O.ActionDelay); } return Inv.Contains(q); });
   addFn(B, 'Swap', async function (invItem, bankItem) { await B.Load(); await B.ToInventory(bankItem); await Inv.ToBank(invItem); return true; });
@@ -351,6 +351,7 @@
   addGet(Hs, 'FreeSlots', function () { return Math.max(0, (Hs.Slots || 0) - (Hs.UsedSlots || 0)); });
   addFn(Hs, 'IsEquipped', function (x) { var it = Hs.Items || []; return it.some(function (i) { return i && i.bEquip && (i.ItemID == x || String(i.sName).toLowerCase() === String(x).toLowerCase()); }); });
   Bot.Random = Bot.Random || { Next: function (a, b) { if (b === undefined) { b = a; a = 0; } if (b === undefined) return Math.floor(Math.random() * 2147483647); return a + Math.floor(Math.random() * (b - a)); }, NextDouble: function () { return Math.random(); } };
+  Bot.Stop = Bot.Stop || function () { try { W.SkuaRunner.Stop(); } catch (e) {} };
   Bot.Version = Bot.Version || { ToString: function () { return '1.0.0'; } };
   var HS = [];
   Bot.Handlers = { _h: HS,
@@ -359,7 +360,13 @@
     Add: function (h) { HS.push(h); }, Remove: function (h) { var i = HS.indexOf(h); if (i >= 0) HS.splice(i, 1); }, Clear: function () { HS.length = 0; } };
   var hTimer = setInterval(function () { var now = Date.now(); HS.slice().forEach(function (h) { if (now - h.last >= h.ms) { h.last = now; if (h.once) { var i = HS.indexOf(h); if (i >= 0) HS.splice(i, 1); } try { h.fn(Bot); } catch (e) {} } }); }, 250);
   if (hTimer && hTimer.unref) hTimer.unref();
-  Bot.ShowMessageBox = Bot.ShowMessageBox || function (m, c) { Bot.Log('✉ ' + (c ? c + ': ' : '') + m); };
+  Bot.ShowMessageBox = function (m, c) {
+    var btns = [].slice.call(arguments, 2);
+    if (!btns.length) { Bot.Log('✉ ' + (c ? c + ': ' : '') + m); return { Text: 'OK', Result: true }; }
+    var pick = btns.indexOf('None') >= 0 ? 'None' : btns.indexOf('No') >= 0 ? 'No' : btns.indexOf('Cancel') >= 0 ? 'Cancel' : btns[0];
+    Bot.Log('✉ ' + (c || 'Aviso') + ': escolhi automaticamente "' + pick + '"');
+    return { Text: pick, Result: pick !== 'None' && pick !== 'No' && pick !== 'Cancel' };
+  };
   Bot.Manager = Bot.Manager || {};
   addGet(Bot.Manager, 'ScriptRunning', function () { return W.SkuaRunner.running; });
   addFn(Bot.Manager, 'StopScript', function () { W.SkuaRunner.Stop(); });
