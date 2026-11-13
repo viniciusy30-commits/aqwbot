@@ -42,8 +42,8 @@
     h: {},
     On: function (n, f) { (Events.h[n] = Events.h[n] || []).push(f); return f; },
     Off: function (n, f) { Events.h[n] = (Events.h[n] || []).filter(function (x) { return x !== f; }); },
-    emit: function (n, d) { (Events.h[n] || []).slice().forEach(function (f) { try { f(d); } catch (e) { Logs.add('debug', 'evento ' + n + ': ' + e.message); } }); },
-    Clear: function () { Events.h = {}; }
+    emit: function (n) { var a = [].slice.call(arguments, 1); (Events.h[n] || []).slice().forEach(function (f) { try { f.apply(null, a); } catch (e) { Logs.add('debug', 'evento ' + n + ': ' + e.message); } }); },
+    Clear: function () { Events.h = {}; if (W.SkuaWaitRehook) W.SkuaWaitRehook(); }
   };
 
   // ---------------- estatísticas ----------------
@@ -83,9 +83,9 @@
   opt('PrivateRooms', false, null, 'Private Rooms');
   opt('PrivateNumber', -1, null, 'Private Number');
   opt('ExitCombatBeforeQuest', false, null, 'Exit Combat Before Quest');
-  opt('AcceptACDrops', false, null, 'Accept AC Drops');
-  opt('AcceptAllDrops', false, null, 'Accept All Drops');
-  opt('RejectAllDrops', false, null, 'Reject All Drops');
+  opt('AcceptACDrops', false, function (v) { Drops.Start(); }, 'Accept AC Drops');
+  opt('AcceptAllDrops', false, function (v) { Drops.Start(); }, 'Accept All Drops');
+  opt('RejectAllDrops', false, function (v) { Drops.Start(); }, 'Reject All Drops');
   opt('SkipCutscenes', false, function (v) { if (v) Skip(); }, 'Skip Cutscenes');
   opt('InfiniteRange', false, function (v) { if (v) for (var i = 0; i < 6; i++) set('world.actions.active.' + i + '.range', 20000); }, 'Infinite Range');
   opt('LagKiller', false, function (v) { set('world.visible', !v); }, 'Lag Killer');
@@ -154,9 +154,9 @@
   function clientPacket(p) {
     if (p.charAt(0) !== '%') return;
     var q = p.split('%'), c = q[3];
-    if (c === 'moveToCell') Events.emit('CellChanged', { Map: Map.Name, Cell: q[5], Pad: q[6] });
+    if (c === 'moveToCell') Events.emit('CellChanged', Map.Name, q[5], q[6]);
     else if (c === 'acceptQuest') { Stats.QuestsAccepted = (Stats.QuestsAccepted || 0) + 1; Events.emit('QuestAccepted', parseInt(q[5], 10)); }
-    else if (c === 'buyItem') Events.emit('TryBuyItem', { ShopID: parseInt(q[6], 10), ItemID: parseInt(q[5], 10), ShopItemID: parseInt(q[7], 10) });
+    else if (c === 'buyItem') Events.emit('TryBuyItem', parseInt(q[6], 10), parseInt(q[5], 10), parseInt(q[7], 10));
     else if (c === 'cmd' && q[5] === 'logout') Events.emit('Logout');
   }
   function handlePacket(raw) {
@@ -190,14 +190,20 @@
           Drops._onDrop(it);
         } break;
       case 'getDrop':
-        if (o && o.bSuccess === 1) Stats.Drops += (o.iQty || 1); break;
+        if (o && o.bSuccess === 1) Stats.Drops += (o.iQty || 1);
+        if (o && (o.bBank === true || o.bBank === 'true' || o.bBank === 1)) Events.emit('ItemAddedToBank', Bank.Items.filter(function (x) { return x.ID === o.ItemID; })[0] || { ID: o.ItemID }, o.iQtyNow);
+        break;
       case 'addItems':
         if (o && o.items) {
           var id = Object.keys(o.items)[0];
-          Events.emit('ItemAdded', { ID: parseInt(id, 10), QtyNow: o.items[id] && o.items[id].iQtyNow });
+          var iid = parseInt(id, 10), qn = (o.items[id] && o.items[id].iQtyNow) || 0, found = null;
+          Inventory.Items.concat(TempInv.Items).forEach(function (x) { if (!found && x.ID === iid) found = x; });
+          if (!found) { var bk = Bank.Items.filter(function (x) { return x.ID === iid; })[0]; if (bk) { Events.emit('ItemAddedToBank', bk, bk.Quantity); break; } found = { ID: iid, Name: '', Temp: false }; }
+          if (!found.Temp) Stats.Drops++;
+          Events.emit('ItemDropped', found, true, qn);
         } break;
       case 'buyItem': if (o && o.bitSuccess === 1) Events.emit('ItemBought', o.CharItemID); break;
-      case 'sellItem': Events.emit('ItemSold', o); break;
+      case 'sellItem': if (o) Events.emit('ItemSold', o.CharItemID, o.iQty, o.iQtyNow, o.intAmount, o.bCoins === 1); break;
       case 'loadShop': Events.emit('ShopLoaded'); break;
       case 'loadBank': Events.emit('BankLoaded'); break;
     }
@@ -205,31 +211,80 @@
 
   // ---------------- espera ----------------
   var Wait = {
-    ForTrue: async function (fn, tries, ms) {
-      tries = tries || 20; ms = ms || 500;
-      for (var i = 0; i < tries; i++) { check(); if (await fn()) return true; await sleep(ms); }
+    // Réplica do ScriptWait do Skua (mesmos timeouts, intervalos e condições)
+    WAIT_SLEEP: 250, OverrideTimeout: false,
+    PlayerActionTimeout: 15, MonsterActionTimeout: 15, MapActionTimeout: 25, DropActionTimeout: 10, ItemActionTimeout: 14, QuestActionTimeout: 14, GameActionTimeout: 40,
+    _ev: { buy: 0, sell: 0, bank: 0 },
+    _t: function (ov, d) { return Wait.OverrideTimeout ? ov : d; },
+    // ForTrue(pred, timeout, sleep) ou ForTrue(pred, loopFn, timeout, sleep). timeout <= 0 = sem limite
+    ForTrue: async function (fn, a, b, c) {
+      var loop = null, tries, ms;
+      if (typeof a === 'function') { loop = a; tries = b; ms = c; } else { tries = a; ms = b; }
+      if (ms === undefined || ms === null || ms === -1) ms = Wait.WAIT_SLEEP;
+      var n = 0;
+      while (!(await fn())) {
+        check();
+        if (tries > 0 && n >= tries) return false;
+        if (loop) await loop();
+        await sleep(ms); n++;
+      }
+      return true;
+    },
+    ForPlayerPosition: function (x, y, t) { return Wait.ForTrue(function () { return !Player.Playing || (Player.X == x && Player.Y == y); }, Wait._t(Wait.PlayerActionTimeout, t === undefined ? 10 : t)); },
+    ForCombatExit: function (t) { return Wait.ForTrue(function () { return !Player.Playing || !Player.InCombat; }, Wait._t(Wait.PlayerActionTimeout, t === undefined ? 10 : t)); },
+    ForMonsterDeath: function (t) {
+      return Wait.ForTrue(function () { return !Player.Playing || !Player.HasTarget; }, function () { return Combat.UntargetSelf(); }, t === undefined ? -1 : t, Math.floor(Wait.WAIT_SLEEP / 5));
+    },
+    ForMonsterSpawn: function (n, t) { return Wait.ForTrue(function () { return !Player.Playing || Monsters.Exists(n); }, Wait._t(Wait.MonsterActionTimeout, t === undefined ? 10 : t)); },
+    ForFullyRested: function (t) { return Wait.ForTrue(function () { return !Player.Playing || (Player.Health >= Player.MaxHealth && Player.Mana >= Player.MaxMana); }, t === undefined ? -1 : t); },
+    ForMapLoad: async function (name, t) {
+      var clean = String(name).split('-')[0].toLowerCase(); t = t === undefined ? 20 : t;
+      var r = await Wait.ForTrue(function () { return lc(Map.Name) === clean; }, Wait._t(Wait.MapActionTimeout, t));
+      return r && await Wait.ForTrue(function () { return !Player.Playing || Map.Loaded; }, Wait._t(Wait.MapActionTimeout, t));
+    },
+    ForCellChange: function (name) { return Wait.ForTrue(function () { return !Player.Playing || Player.Cell === name; }, Wait._t(Wait.MapActionTimeout, Math.floor(Wait.WAIT_SLEEP / 4))); },
+    ForPickup: function (q, t) { return Wait.ForTrue(function () { return !Player.Playing || !Drops.Exists(q); }, Wait._t(Wait.DropActionTimeout, t === undefined ? 10 : t)); },
+    ForDrop: function (q, t) { return Wait.ForTrue(function () { return !Player.Playing || Drops.Exists(q); }, Wait._t(Wait.DropActionTimeout, t === undefined ? 10 : t)); },
+    _evWait: async function (k, t) {
+      var end = Date.now() + t * Wait.WAIT_SLEEP;
+      while (Date.now() < end) { check(); if (Wait._ev[k] > 0) { Wait._ev[k] = 0; return true; } await sleep(25); }
       return false;
     },
-    ForMapLoad: function (map, tries) {
-      return Wait.ForTrue(function () { return Map.Loaded && (!map || lc(Map.Name) === lc(String(map).split('-')[0])); }, tries || 40, 500);
+    ForItemBuy: function (t) { return Wait._evWait('buy', Wait._t(Wait.ItemActionTimeout, t === undefined ? 10 : t)); },
+    ForItemSell: function (t) { return Wait._evWait('sell', Wait._t(Wait.ItemActionTimeout, t === undefined ? 10 : t)); },
+    ForBankLoad: function (t) { return Wait._evWait('bank', t === undefined ? 20 : t); },
+    ForItemEquip: function (q, t) {
+      return Wait.ForTrue(function () {
+        if (!Player.Playing) return true;
+        var it = Inventory.TryGetItem ? Inventory.TryGetItem(q) : null;
+        return typeof q === 'number' ? !!(it && it.Equipped) : (!it || !!it.Equipped);
+      }, Wait._t(Wait.ItemActionTimeout, t === undefined ? 10 : t));
     },
-    ForCellChange: function (cell) { return Wait.ForTrue(function () { return Player.Cell === cell; }, 20, 300); },
-    ForMonsterSpawn: function (n) { return Wait.ForTrue(function () { return Monsters.Exists(n); }, 30, 400); },
-    ForMonsterDeath: async function () {
-      var t0 = Date.now();
-      while (Date.now() - t0 < 180000) {
-        check();
-        if (!Player.HasTarget || !Player.Alive) break;
-        await sleep(250);
-      }
+    ForBankToInventory: function (q, t) { return Wait.ForTrue(function () { return !Player.Playing || Inventory.Contains(q); }, Wait._t(Wait.ItemActionTimeout, t === undefined ? 14 : t), Math.floor(Wait.WAIT_SLEEP / 2)); },
+    ForBankToHouseInventory: function (q, t) { return Wait.ForTrue(function () { return !Player.Playing || House.Contains(q); }, Wait._t(Wait.ItemActionTimeout, t === undefined ? 14 : t), Math.floor(Wait.WAIT_SLEEP / 2)); },
+    ForInventoryToBank: function (q, t) { return Wait.ForTrue(function () { return !Player.Playing || !Inventory.Contains(q); }, Wait._t(Wait.ItemActionTimeout, t === undefined ? 14 : t), Math.floor(Wait.WAIT_SLEEP / 2)); },
+    ForHouseInventoryToBank: function (q, t) { return Wait.ForTrue(function () { return !Player.Playing || !House.Contains(q); }, Wait._t(Wait.ItemActionTimeout, t === undefined ? 14 : t), Wait.WAIT_SLEEP); },
+    ForQuestAccept: function (id, t) { return Wait.ForTrue(function () { return !Player.Playing || Quests.IsInProgress(id); }, Wait._t(Wait.QuestActionTimeout, t === undefined ? 14 : t), Math.floor(Wait.WAIT_SLEEP / 2)); },
+    ForQuestComplete: function (id, t) { return Wait.ForTrue(function () { return !Player.Playing || !Quests.IsInProgress(id); }, Wait._t(Wait.QuestActionTimeout, t === undefined ? 10 : t), Math.floor(Wait.WAIT_SLEEP / 2)); },
+    ForSkillCooldown: function (i, t) { return Wait.ForTrue(function () { return Skills.CanUseSkill(i); }, t === undefined ? 50 : t, Wait.WAIT_SLEEP); },
+    For: function (fn, v, t) { return Wait.ForTrue(async function () { return (await fn()) === v; }, t === undefined ? 10 : t); },
+    IsActionAvailable: function (a) {
+      if (!Player.Playing) return false;
+      var ts = get('world.lock.' + a + '.ts'), cd = get('world.lock.' + a + '.cd');
+      if (ts === null || cd === null || ts === undefined) return false;
+      return Date.now() - ts >= cd;
     },
-    ForPlayerDeath: function () { return Wait.ForTrue(function () { return !Player.Alive; }, 120, 500); },
-    ForQuestAccept: function (id) { return Wait.ForTrue(function () { return Quests.IsInProgress(id); }, 10, 400); },
-    ForQuestComplete: function (id) { return Wait.ForTrue(function () { return !Quests.IsInProgress(id); }, 10, 400); },
-    ForCombatExit: function () { return Wait.ForTrue(function () { return !Player.InCombat; }, 30, 400); },
-    ForPickup: function (name) { return Wait.ForTrue(function () { return Inventory.Contains(name) || TempInv.Contains(name); }, 15, 300); },
-    ForItemEquip: function (name) { return Wait.ForTrue(function () { return Inventory.Items.some(function (i) { return lc(i.Name) === lc(name) && i.Equipped; }); }, 15, 300); }
+    ForActionCooldown: function (a, t) {
+      var map = { LoadShop: 'loadShop', LoadEnhShop: 'loadEnhShop', LoadHairShop: 'loadHairShop', EquipItem: 'equipItem', UnequipItem: 'unequipItem', BuyItem: 'buyItem', SellItem: 'sellItem', GetMapItem: 'getMapItem', TryQuestComplete: 'tryQuestComplete', AcceptQuest: 'acceptQuest', DoIA: 'doIA', Rest: 'rest', Who: 'who', Transfer: 'tfer' };
+      var name = map[a] || a;
+      return Wait.ForTrue(function () { return Wait.IsActionAvailable(name); }, Wait._t(Wait.GameActionTimeout, t === undefined ? 40 : t));
+    }
   };
+  Wait.ForAsync = Wait.For; Wait.ForTrueAsync = Wait.ForTrue; Wait.ForTrueSync = Wait.ForTrue;
+  Events.On('ItemBought', function () { Wait._ev.buy = 1; });
+  Events.On('ItemSold', function () { Wait._ev.sell = 1; });
+  Events.On('BankLoaded', function () { Wait._ev.bank = 1; });
+  W.SkuaWaitRehook = function () { Events.On('ItemBought', function () { Wait._ev.buy = 1; }); Events.On('ItemSold', function () { Wait._ev.sell = 1; }); Events.On('BankLoaded', function () { Wait._ev.bank = 1; }); };
 
   // ---------------- jogador ----------------
   var Player = {
@@ -276,7 +331,7 @@
   var Map = {
     get Name() { return get('world.strMapName') || ''; },
     get RoomID() { return get('world.curRoom'); },
-    get Loaded() { return !get('world.mapLoadInProgress'); },
+    get Loaded() { return !get('world.mapLoadInProgress') && get('mcConnDetail.stage') === null; },
     get PlayerNames() { return keys('world.uoTree'); },
     get PlayerCount() { return get('world.areaUsers.length') || 0; },
     get Cells() { return keys('world.map.currentScene.labels').length ? snapNames('world.map.currentScene.labels') : []; },
@@ -291,6 +346,7 @@
         var m = map;
         if ((Options.PrivateRooms && String(m).indexOf('-') < 0) || String(m).indexOf('-1e9') >= 0)
           m = base + (Options.PrivateNumber !== -1 ? '-' + Options.PrivateNumber : '-100000');
+        if (Options.SafeTimings) await Wait.ForActionCooldown('Transfer');
         Map.JoinPacket(m, cell, pad);
         if (Options.SafeTimings) {
           var okLoad = await Wait.ForMapLoad(m, 20);
@@ -308,8 +364,8 @@
     },
     Reload: function () { return call('world.reloadCurrentMap'); },
     GetMapItem: async function (id) {
+      if (Options.SafeTimings) { await Wait.ForActionCooldown('GetMapItem'); await sleep(Options.ActionDelay); }
       call('world.getMapItem', [id]);
-      if (Options.SafeTimings) await sleep(Options.ActionDelay);
     },
     SetSpawnPoint: function () { return call('world.setSpawnPoint'); },
     GetPlayer: function (name) { return snap('world.uoTree.' + lc(name)); }
@@ -333,38 +389,86 @@
       return out;
     },
     get CurrentMonsters() { var c = Player.Cell; return Monsters.MapMonsters.filter(function (m) { return m.Cell === c; }); },
-    get CurrentAvailableMonsters() { return Monsters.CurrentMonsters.filter(function (m) { return m.HP > 0 && m.State !== 0; }); },
+    // availableMonstersInCell (Main.as): monstros da cela atual que têm pMC (estão na tela)
+    get CurrentAvailableMonsters() {
+      var c = Player.Cell;
+      return Monsters.MapMonsters.filter(function (m) { return m.Cell === c && get('world.monsters.' + m.Index + '.pMC.x') !== null; });
+    },
+    // getMonster/attackMonsterByName (Main.as): contém o texto (sem diferenciar maiúsculas) ou '*'
     _match: function (m, q) {
       if (typeof q === 'number') return m.MapID === q;
       var s = lc(q);
       return s === '*' || lc(m.Name).indexOf(s) > -1;
     },
+    _byId: function (id) {
+      return Monsters.MapMonsters.filter(function (m) { return m.MapID === id && get('world.monsters.' + m.Index + '.pMC.x') !== null; })[0] || null;
+    },
     Find: function (q) { return Monsters.MapMonsters.filter(function (m) { return Monsters._match(m, q); }); },
-    Exists: function (q) { return Monsters.CurrentAvailableMonsters.some(function (m) { return Monsters._match(m, q); }); },
-    GetHealth: function (q) { var m = Monsters.Find(q)[0]; return m ? m.HP : -1; }
+    // IScriptMonster.Exists: nome EXATO (sem espaços nas pontas) ou '*'; número = ID ou MapID
+    Exists: function (q) {
+      var list = Monsters.CurrentAvailableMonsters;
+      if (typeof q === 'number') return list.some(function (m) { return m.ID === q || m.MapID === q; });
+      var t = String(q).trim();
+      return list.some(function (m) { return q === '*' || String(m.Name || '').trim() === t; });
+    },
+    MonsterHP: function (q) {
+      var m = typeof q === 'number' ? Monsters._byId(q) : Monsters.CurrentAvailableMonsters.filter(function (x) { return Monsters._match(x, q); })[0];
+      return m ? (m.HP || 0) : 0;
+    },
+    GetHealth: function (q) { return Monsters.MonsterHP(q); }
   };
 
   // ---------------- combate ----------------
   var Combat = {
+    StopAttacking: false, _target: null,
+    _attackTarget: function (m) {
+      if (m && get('world.monsters.' + m.Index + '.pMC.x') !== null) {
+        try { W.aqw.target(m.Index); } catch (e) { return false; }
+        call('world.approachTarget');
+        return true;
+      }
+      return false;
+    },
+    // attackMonsterName / attackMonsterID do Skua
     Attack: async function (q) {
-      var m = Monsters.CurrentAvailableMonsters.filter(function (x) { return Monsters._match(x, q); })[0];
-      if (!m) return false;
-      try { W.aqw.target(m.Index); } catch (e) { return false; }
-      call('world.approachTarget');
-      return true;
+      if (Combat.StopAttacking) { await Combat.CancelTarget(); return false; }
+      var m = typeof q === 'number' ? Monsters._byId(q) : (Monsters.CurrentMonsters.filter(function (x) { return Monsters._match(x, q) && get('world.monsters.' + x.Index + '.pMC.x') !== null; })[0] || null);
+      return Combat._attackTarget(m);
     },
     AttackPlayer: function (name) { Logs.add('debug', 'AttackPlayer não suportado neste cliente (' + name + ')'); return false; },
-    CancelTarget: function () { return call('world.cancelTarget'); },
+    UntargetSelf: function () { if (get('world.myAvatar.target') !== null && get('world.myAvatar.target.isMyAvatar') === true) return call('world.cancelTarget'); },
+    CancelTarget: async function () { call('world.cancelTarget'); if (Options.SafeTimings) await Wait.ForMonsterDeath(); },
     CancelAutoAttack: function () { return call('world.cancelAutoAttack'); },
     Approach: function () { return call('world.approachTarget'); },
     Exit: async function () {
-      if (!Player.InCombat) return;
-      var c = Player.Cell, p = Player.Pad;
-      await Map.Jump(c === 'Enter' ? 'Blank' : 'Enter', 'Spawn');
+      if (Player.State === 1) return;
+      Combat.CancelAutoAttack();
+      await Combat.CancelTarget();
+      await Map.Jump(Player.Cell, Player.Pad);
+      await sleep(300);
+      await Map.Jump(Player.Cell, Player.Pad);
       await Wait.ForCombatExit();
-      await Map.Jump(c, p);
     }
   };
+  // Skua: ScriptCombat reage a PlayerDeath / CounterAttack / fim do script
+  function hookCombat() {
+    Events.On('PlayerDeath', function () { Combat.StopAttacking = false; });
+    Events.On('CounterAttack', function (faded) {
+      if (faded) {
+        Combat.StopAttacking = false;
+        if (Combat._target !== null) Combat.Attack(Combat._target);
+        Combat._target = null; return;
+      }
+      Combat.StopAttacking = true;
+      var mid = get('world.myAvatar.target.objData.MonMapID'); Combat._target = mid === null ? get('world.myAvatar.target.dataLeaf.MonMapID') : mid;
+      if (Combat._target === null) Combat._target = null;
+      Combat.CancelAutoAttack(); Combat.CancelTarget();
+    });
+  }
+  hookCombat();
+  function hookSkills() { Events.On('CounterAttack', function (faded) { if (faded) Skills._ca = true; }); }
+  hookSkills();
+  var oldRehook = W.SkuaWaitRehook; W.SkuaWaitRehook = function () { oldRehook(); hookCombat(); hookSkills(); };
 
   // ---------------- skills (Advanced Skills do Skua) ----------------
   var Skills = {
@@ -374,16 +478,19 @@
     },
     CanUse: function (i) {
       var s = Skills.SkillInfo(i);
-      if (!Player.HasTarget) return false;
-      if (s.auto) return true;
-      var now = Date.now(), tha = get('world.myAvatar.dataLeaf.sta.$tha') || 0;
-      var haste = 1 - Math.min(Math.max(tha, -1), 0.5);
-      if (now - (get('world.GCDTS') || 0) < (get('world.GCD') || 0)) return false;
-      var cd = Math.round((s.OldCD != null ? s.OldCD : s.cd) * haste);
-      if (now - (s.ts || 0) < cd) return false;
-      if (s.mp > Player.Mana) return false;
+      var hp = get('world.myAvatar.target.dataLeaf.intHP');
+      if (get('world.myAvatar.target') === null || !(hp > 0 || hp === null)) return false;
+      if (s.auto) { if (get('world.autoActionTimer.running') === true) return false; }
+      else {
+        var now = Date.now(), tha = get('world.myAvatar.dataLeaf.sta.$tha') || 0;
+        var haste = 1 - Math.min(Math.max(tha, -1), 0.5);
+        if (now - (get('world.GCDTS') || 0) < (get('world.GCD') || 0)) return false;
+        var cd = Math.round((s.OldCD != null ? s.OldCD : s.cd) * haste);
+        if (now - (s.ts || 0) < cd) return false;
+      }
       return s.isOK !== false && (!s.skillLock || !s.lock);
     },
+    CanUseSkill: function (i) { return Skills.CanUse(i); },
     Use: function (i) { var k = i <= 9 ? 48 + i : i; try { return W.aqw.cast(String(k)); } catch (e) { return null; } },
     UseSkill: function (i) { return Skills.Use(i); },
     // "3 | 4 S | 1 H<50 | 2 W500" — mesma sintaxe do Skua
@@ -403,38 +510,98 @@
       });
       return out;
     },
+    // ---- ScriptSkill / AdvancedSkillProvider do Skua ----
+    SkillInterval: 100, SkillTimeout: -1, SkillUseMode: 'UseIfAvailable', TimerRunning: false,
+    _prov: null, _over: null, _base: null, _tok: null, _ca: false,
+    _load: function (str) { return { cmds: Skills.Parse(str), i: 0 }; },
+    _next: function (p) { var i = p.i, c = p.cmds[i]; p.i = (p.i + 1) >= p.cmds.length ? 0 : p.i + 1; return { index: i, skill: c.skill }; },
+    _should: async function (p, idx, can) { // AdvancedSkillCommand.ShouldUse (true / false / null)
+      var c = p.cmds[idx];
+      if (!p.cmds.length || !c.rules.length) return true;
+      var should = true;
+      for (var r = 0; r < c.rules.length; r++) {
+        var u = c.rules[r];
+        if (!Player.Alive) return false;
+        if (u.t === 'h') { if (Player.Health === 0 || Player.MaxHealth === 0) should = false; else { var ratio = Math.floor(Player.Health / Player.MaxHealth * 100); should = u.gt ? ratio >= u.v : ratio <= u.v; } }
+        else if (u.t === 'm') should = u.gt ? Player.Mana >= u.v : Player.Mana <= u.v;
+        else if (u.t === 'w') { if (u.skip && !can) return null; await sleep(u.v); }
+        if (u.skip && !should) return null;
+        if (!should) break;
+      }
+      return should;
+    },
+    LoadAdvanced: function (a, b, c) {
+      if (typeof b === 'boolean') { // (className, autoEquip, useMode)
+        var cls = String(a);
+        var done = function (txt, to, mode) { Skills._over = Skills._load(txt); if (to !== undefined) Skills.SkillTimeout = to; if (mode) Skills.SkillUseMode = mode; };
+        if (lc(cls) === 'generic') { done('1 | 2 | 3 | 4', undefined, 'UseIfAvailable'); return; }
+        var list = Skills.Library.filter(function (x) { return lc(x.cls) === lc(cls); });
+        if (!list.length) { done('1 | 2 | 3 | 4', undefined, 'UseIfAvailable'); return; }
+        var e = list.filter(function (x) { return lc(x.mode) === lc(c || 'Base'); })[0] || list[0];
+        var num = parseInt(String(e.timeout).replace(/[^0-9]/g, ''), 10);
+        var wait = !isNaN(num);
+        done(e.skills, wait ? num : 250, wait ? 'WaitForCooldown' : 'UseIfAvailable');
+        return;
+      }
+      Skills.SkillTimeout = b === undefined ? -1 : b; Skills.SkillUseMode = c || 'UseIfAvailable';
+      Skills._over = Skills._load(String(a));
+    },
+    Start: function (seq) {
+      if (seq !== undefined && seq !== null && typeof seq !== 'function') {
+        Skills.LoadAdvanced(String(seq).split(/[\s,|]+/).filter(Boolean).join(' | '), -1, 'UseIfAvailable');
+      }
+      if (!Skills._base) Skills._base = Skills._load('1 | 2 | 3 | 4');
+      Skills._prov = Skills._over || Skills._base;
+      if (Skills.TimerRunning) return;
+      Skills.TimerRunning = true; Skills.active = true;
+      var tok = Skills._tok = {};
+      (async function () {
+        try {
+          while (Skills._tok === tok) {
+            if (Combat.StopAttacking) {
+              Skills._ca = false; var t0 = Date.now();
+              while (!Skills._ca && Date.now() - t0 < 10000 && Skills._tok === tok) await sleep(50);
+              Combat.StopAttacking = false;
+            }
+            if (Options.AttackWithoutTarget || Player.HasTarget) await Skills._poll(tok);
+            await sleep(Skills.SkillInterval);
+          }
+        } catch (e) { Logs.add('debug', 'skills: ' + e.message); }
+        finally { if (Skills._tok === tok || Skills._tok === null) { Skills.TimerRunning = false; Skills.active = false; } }
+      })();
+    },
+    _use: async function (skill, tok) {
+      if (Skills.SkillUseMode === 'UseIfAvailable') {
+        if ((Options.AttackWithoutTarget || Skills.CanUse(skill)) && !Combat.StopAttacking) Skills.Use(skill);
+      } else {
+        var ok2 = Options.AttackWithoutTarget;
+        if (!ok2 && skill !== -1) {
+          var n = 0, to = Skills.SkillTimeout;
+          while (!Skills.CanUse(skill)) { if (Skills._tok !== tok || run.stop || (to > 0 && n >= to)) break; await sleep(Skills.SkillInterval); n++; }
+          ok2 = Skills.CanUse(skill) && !Combat.StopAttacking && Skills._tok === tok;
+        }
+        if (ok2) Skills.Use(skill);
+      }
+    },
+    _poll: async function (tok) {
+      var p = Skills._prov; if (!p || !p.cmds.length) return;
+      var n = Skills._next(p);
+      var res = await Skills._should(p, n.index, Skills.CanUse(n.skill));
+      if (Skills._tok !== tok) return;
+      if (res === true) await Skills._use(n.skill, tok);
+      else if (res === null) { var m = Skills._next(p); await Skills._use(m.skill, tok); }
+    },
     StartAdvanced: function (str, timeout, mode) {
       Skills.Stop();
-      Skills._cmd = Skills.Parse(str); if (!Skills._cmd.length) { log('skills inválidas: ' + str); return; }
-      Skills._idx = 0; Skills.timeout = Math.max(100, timeout || 250); Skills.useMode = mode || 'UseIfAvailable'; Skills.active = true;
-      var busy = false;
-      Skills._timer = setInterval(async function () {
-        if (busy || run.stop && !Auto.on) return; busy = true;
-        try {
-          if (!Player.Alive || !Player.HasTarget) return;
-          var c = Skills._cmd[Skills._idx % Skills._cmd.length], can = Skills.CanUse(c.skill);
-          var should = true;
-          for (var r = 0; r < c.rules.length; r++) {
-            var u = c.rules[r];
-            if (u.t === 'h') { var ratio = Player.MaxHealth ? Math.floor(Player.Health / Player.MaxHealth * 100) : 0; should = u.gt ? ratio >= u.v : ratio <= u.v; }
-            else if (u.t === 'm') should = u.gt ? Player.Mana >= u.v : Player.Mana <= u.v;
-            else if (u.t === 'w') { if (u.skip && !can) { should = null; break; } await sleep(u.v); }
-            if (u.skip && !should) { should = null; break; }
-            if (!should) break;
-          }
-          if (should === null) { Skills._idx++; return; }
-          if (!should) return;
-          if (Skills.useMode === 'WaitForCooldown') { var t0 = Date.now(); while (!Skills.CanUse(c.skill) && Date.now() - t0 < 5000 && Player.HasTarget) await sleep(50); }
-          else if (!can) return;
-          Skills.Use(c.skill); Skills._idx++;
-        } finally { busy = false; }
-      }, Skills.timeout);
+      Skills.LoadAdvanced(String(str), timeout === undefined ? -1 : timeout, mode || 'UseIfAvailable');
+      if (!Skills._over.cmds.length) { log('skills inválidas: ' + str); return; }
+      Skills.Start();
     },
-    Start: function (seq, ms) {
-      var s = String(seq || '1 2 3 4').split(/[\s,|]+/).filter(Boolean).join(' | ');
-      Skills.StartAdvanced(s, ms || 250, 'UseIfAvailable');
+    Stop: function () {
+      if (Skills._prov) { Combat.CancelAutoAttack(); call('world.cancelTarget'); Skills._prov.i = 0; }
+      Skills._tok = null; Skills.TimerRunning = false; Skills.active = false;
     },
-    Stop: function () { if (Skills._timer) clearInterval(Skills._timer); Skills._timer = null; Skills.active = false; },
+    SetProvider: function () {}, UseBaseProvider: function () { Skills._over = null; },
     Library: [],
     LoadLibrary: function (txt) {
       Skills.Library = String(txt).split(/\r?\n/).map(function (l) {
@@ -444,12 +611,8 @@
       return Skills.Library;
     },
     UseLibrary: function (cls, mode) {
-      var e = Skills.Library.filter(function (x) { return lc(x.cls) === lc(cls) && (!mode || lc(x.mode) === lc(mode)); })[0] ||
-              Skills.Library.filter(function (x) { return lc(x.cls) === lc(cls); })[0];
-      if (!e) return false;
-      var wait = /^use/i.test(e.timeout);
-      Skills.StartAdvanced(e.skills, wait ? 150 : parseInt(e.timeout, 10) || 250, wait ? 'UseIfAvailable' : 'WaitForCooldown');
-      return true;
+      if (!Skills.Library.some(function (x) { return lc(x.cls) === lc(cls); })) return false;
+      Skills.Stop(); Skills.LoadAdvanced(cls, false, mode); Skills.Start(); return true;
     }
   };
 
@@ -511,27 +674,76 @@
 
   // ---------------- drops ----------------
   var Drops = {
-    Current: [], whitelist: [],
+    Current: [], ToPickup: [], ToPickupIDs: [], RejectElse: false, Interval: 0, _tok: null,
+    get CurrentDropInfos() { return Drops.Current; },
+    get CurrentDrops() { return Drops.Current.map(function (d) { return String(d.Name).trim(); }); },
+    get Enabled() { return Drops._tok !== null; },
+    // ScriptDrop.AddDrop: a lista só recebe drops que NÃO foram direto ao inventário
     _onDrop: function (it) {
       var d = { ID: it.ItemID, Name: it.sName, Quantity: it.iQty || 1, Coins: !!it.bCoins, Temp: !!it.bTemp, Upgrade: !!it.bUpg, t: Date.now() };
-      Drops.Current.push(d); if (Drops.Current.length > 100) Drops.Current.shift();
-      Events.emit('ItemDropped', d);
-      if (Options.RejectAllDrops) { Drops.Remove(d.ID); return; }
-      var want = Options.AcceptAllDrops || (Options.AcceptACDrops && d.Coins) ||
-        (Drops.whitelist.length && Drops.whitelist.indexOf(lc(d.Name)) > -1);
-      if (want) setTimeout(function () { Drops.PickupId(d.ID); }, 300);
+      var ex = Drops.Current.filter(function (x) { return x.ID === d.ID; })[0];
+      if (ex) ex.Quantity += d.Quantity; else Drops.Current.push(d);
+      Events.emit('ItemDropped', d, false, 0);
     },
-    Remove: function (id) { Drops.Current = Drops.Current.filter(function (d) { return d.ID !== id; }); },
-    PickupId: function (id) { Send.Packet('%xt%zm%getDrop%' + Map.RoomID + '%' + id + '%'); Drops.Remove(id); },
-    Pickup: async function (q) {
-      var d = Drops.Current.filter(function (x) { return typeof q === 'number' ? x.ID === q : lc(x.Name) === lc(q); })[0];
+    Remove: function () { // Remove(params nomes|ids) da lista ToPickup; com 1 número também limpa o drop (uso interno)
+      var a = [].concat.apply([], [].slice.call(arguments));
+      Drops.ToPickup = Drops.ToPickup.filter(function (x) { return a.indexOf(x) < 0; });
+      Drops.ToPickupIDs = Drops.ToPickupIDs.filter(function (x) { return a.indexOf(x) < 0; });
+    },
+    _drop: function (id) { Drops.Current = Drops.Current.filter(function (d) { return d.ID !== id; }); },
+    PickupId: function (id) { Send.Packet('%xt%zm%getDrop%' + Map.RoomID + '%' + id + '%'); Drops._drop(id); },
+    _pickOne: function (q) {
+      var d = Drops.Current.filter(function (x) { return typeof q === 'number' ? x.ID === q : lc(String(x.Name).trim()) === lc(q); })[0];
       if (!d) return false;
-      Drops.PickupId(d.ID); await sleep(Options.ActionDelay); return true;
+      Drops.PickupId(d.ID); return true;
     },
-    PickupAll: async function () { var l = Drops.Current.slice(); for (var i = 0; i < l.length; i++) { Drops.PickupId(l[i].ID); await sleep(200); } },
-    RejectExcept: function (names) { Drops.whitelist = [].concat(names).map(lc); },
-    Clear: function () { Drops.whitelist = []; }
+    Pickup: async function () {
+      var a = [].concat.apply([], [].slice.call(arguments));
+      for (var i = 0; i < a.length; i++) {
+        Drops._pickOne(a[i]);
+        if (Options.SafeTimings) await Wait.ForPickup(a[i]);
+      }
+    },
+    PickupACItems: function () { return Drops.Pickup.apply(null, Drops.Current.filter(function (d) { return d.Coins; }).map(function (d) { return d.Name; })); },
+    PickupAll: async function (skipWait) {
+      Drops.Current.slice().forEach(function (d) { Drops._pickOne(d.ID); });
+      Drops.Current = [];
+      if (Options.SafeTimings && !skipWait) await Wait.ForPickup('*');
+    },
+    // rejectExcept do Skua: tira da lista (e da tela) tudo que não está na lista
+    RejectExcept: async function () {
+      var a = [].concat.apply([], [].slice.call(arguments)).map(function (x) { return typeof x === 'number' ? x : lc(x); });
+      if (Options.AcceptACDrops) await Drops.PickupACItems();
+      Drops.Current = Drops.Current.filter(function (d) { return a.indexOf(lc(d.Name)) > -1 || a.indexOf(d.ID) > -1; });
+    },
+    RejectAll: async function () { if (Options.AcceptACDrops) await Drops.PickupACItems(); Drops.Current = []; },
+    Add: function () { var a = [].concat.apply([], [].slice.call(arguments)); a.forEach(function (x) { var L = typeof x === 'number' ? Drops.ToPickupIDs : Drops.ToPickup; if (L.indexOf(x) < 0) L.push(x); }); },
+    Clear: function () { Drops.ToPickup = []; Drops.ToPickupIDs = []; Drops.whitelist = []; },
+    Start: function () {
+      if (Drops._tok) return;
+      var tok = Drops._tok = {};
+      (async function () {
+        while (Drops._tok === tok) {
+          await sleep(1000);
+          if (Drops._tok !== tok) break;
+          if (!Player.Playing) continue;
+          try {
+            if (Drops.Interval > 0) await sleep(Drops.Interval);
+            if (Options.AcceptAllDrops) { await Drops.PickupAll(); continue; }
+            if (Options.AcceptACDrops) await Drops.PickupACItems();
+            if (Options.RejectAllDrops) { await Drops.RejectAll(); continue; }
+            if (Drops.ToPickupIDs.length) await Drops.Pickup.apply(null, Drops.ToPickupIDs.slice());
+            if (Drops.ToPickup.length) await Drops.Pickup.apply(null, Drops.ToPickup.slice());
+            if (Drops.RejectElse) await Drops.RejectExcept.apply(null, Drops.ToPickup.slice());
+          } catch (e) { if (String(e && e.message) === '__SKUA_STOP__') break; }
+        }
+      })();
+    },
+    Stop: function () { Drops._tok = null; },
+    StopAsync: async function () { Drops._tok = null; },
+    Exists: function (q) { return typeof q === 'number' ? Drops.Current.some(function (d) { return d.ID === q; }) : ((q === '*' && Drops.Current.length > 0) || Drops.CurrentDrops.some(function (n) { return lc(n) === lc(q); })); }
   };
+  Events.On('Logout', function () { Drops.Current = []; });
 
   // ---------------- quests ----------------
   var Quests = {
@@ -542,15 +754,16 @@
     },
     Load: async function () {
       var ids = [].slice.call(arguments).reduce(function (a, b) { return a.concat(b); }, []);
-      for (var i = 0; i < ids.length; i += 30) { Send.Packet('%xt%zm%getQuests%' + (Map.RoomID || 1) + '%' + ids.slice(i, i + 30).join(',') + '%'); if (ids.length > 30) await sleep(Options.ActionDelay); }
+      if (ids.length < 30) { call('world.showQuests', [ids.join(','), 'q']); return; }
+      for (var i = 0; i < ids.length; i += 30) { call('world.showQuests', [ids.slice(i, i + 30).join(','), 'q']); await sleep(Options.ActionDelay); }
     },
     EnsureLoad: async function (id) {
-      await Wait.ForTrue(function () { return Quests.Tree.some(function (q) { return q.ID === id; }); }, 20, 1000).then(function (x) { return x; }, function () {});
+      await Wait.ForTrue(function () { return Quests.Tree.some(function (q) { return q.ID === id; }); }, function () { return Quests.Load(id); }, 20, 1000);
       return Quests.Tree.filter(function (q) { return q.ID === id; })[0];
     },
     IsInProgress: function (id) { return call('world.isQuestInProgress', [id]) === true; },
     Accept: async function (id) {
-      if (Options.SafeTimings) await sleep(300);
+      if (Options.SafeTimings) await Wait.ForActionCooldown('AcceptQuest');
       call('world.acceptQuest', [id]);
       if (Options.SafeTimings) await Wait.ForQuestAccept(id);
       return Quests.IsInProgress(id);
@@ -570,7 +783,7 @@
     },
     Complete: async function (id, itemId, special) {
       if (Options.ExitCombatBeforeQuest) await Combat.Exit();
-      if (Options.SafeTimings) await sleep(300);
+      if (Options.SafeTimings) await Wait.ForActionCooldown('TryQuestComplete');
       call('world.tryQuestComplete', [id, itemId === undefined ? -1 : itemId, !!special]);
       if (Options.SafeTimings) await Wait.ForQuestComplete(id);
       return !Quests.IsInProgress(id);
@@ -631,29 +844,52 @@
 
   // ---------------- kill / hunt ----------------
   var Kill = {
-    Monster: async function (q) {
+    _saveCell: '', _savePad: '', _item: null, _cts: null,
+    _wait: async function (tok) { // WaitMonsterDeathOrCancellation
+      while (!(!Player.Playing || !Player.HasTarget) && !(tok && tok.cancelled)) { check(); Combat.UntargetSelf(); await sleep(Math.floor(Wait.WAIT_SLEEP / 5)); }
+      Combat.CancelAutoAttack(); await Combat.CancelTarget();
+    },
+    Monster: async function (q, tok) {
+      if (q && typeof q === 'object') q = q.MapID;
       if (Options.SafeTimings) await Wait.ForMonsterSpawn(q);
       if (await Combat.Attack(q)) {
         await sleep(Options.ActionDelay);
-        await Wait.ForMonsterDeath();
+        if (!tok) { await Wait.ForMonsterDeath(); return; }
+        await Kill._wait(tok);
       }
     },
-    ForItem: async function (name, item, n, temp) {
-      if (has(item, n, temp)) return;
-      var cell = Player.Cell, pad = Player.Pad, names = String(name).split('|');
-      while (!run.stop && !has(item, n, temp)) {
-        if (Player.Cell !== cell) await Map.Jump(cell, pad);
-        var list = name === '*' ? Monsters.CurrentAvailableMonsters.map(function (m) { return m.MapID; }) : names;
-        if (!list.length) { await sleep(500); continue; }
-        for (var i = 0; i < list.length; i++) {
-          check(); if (has(item, n, temp)) break;
-          await Kill.Monster(list[i]);
-          await sleep(Options.ActionDelay);
-          if (Drops.Current.length) { await Drops.PickupAll(); }
+    ForItem: async function (name, item, qty, temp) {
+      if (Array.isArray(name)) name = name.join('|');
+      temp = !!temp;
+      if (has(item, qty, temp)) return;
+      var cell = Player.Cell, pad = Player.Pad, tok = { cancelled: false }, names = String(name).split('|');
+      Kill._item = { name: item, quantity: qty, temp: temp };
+      var onCell = Events.On('CellChanged', function (map, c) { if (c !== cell) Map.Jump(cell, pad); });
+      var onDrop = Events.On('ItemDropped', function (it, added, qNow) {
+        if (!it || it.Name !== item) return;
+        if (added && !it.Temp && qNow >= qty) { tok.cancelled = true; return; }
+        Drops.Pickup(it.Name);
+        var q = temp ? TempInv.GetQuantity(it.Name) : Inventory.GetQuantity(it.Name);
+        if (q >= qty) tok.cancelled = true;
+      });
+      try {
+        if (name === '*') {
+          while (!run.stop && !tok.cancelled) {
+            check();
+            var list = Monsters.CurrentAvailableMonsters.slice();
+            for (var i = 0; i < list.length; i++) { if (tok.cancelled) break; await Kill.Monster(list[i], tok); await sleep(Options.ActionDelay); }
+            if (!list.length) await sleep(100);
+          }
+        } else {
+          while (!run.stop && !tok.cancelled) {
+            check();
+            for (var j = 0; j < names.length; j++) { if (tok.cancelled) break; await Kill.Monster(names[j], tok); await sleep(Options.ActionDelay); }
+          }
         }
-      }
+      } finally { Events.Off('CellChanged', onCell); Events.Off('ItemDropped', onDrop); Kill._item = null; }
     },
     ForItems: async function (name, items, qtys, temp) {
+      if (items.length !== qtys.length || (Array.isArray(temp) && items.length !== temp.length)) { log('Item count does not match quantity/temp item count.'); return; }
       for (var i = 0; i < items.length; i++) { check(); await Kill.ForItem(name, items[i], qtys[i], Array.isArray(temp) ? temp[i] : !!temp); }
     },
     Player: async function (name) { Combat.AttackPlayer(name); if (Options.SafeTimings) await Wait.ForMonsterDeath(); }
@@ -735,6 +971,7 @@
     Start: async function (code, name) {
       if (Runner.running) { log('já existe um script rodando'); return; }
       if (!ok()) { log('Cliente modificado indisponível: ligue "Cliente modificado" em Options > Application, recarregue e entre num mapa'); return; }
+      if (Options.AcceptAllDrops || Options.AcceptACDrops || Options.RejectAllDrops) Drops.Start();
       run.stop = false; Runner.running = true; Runner.name = name || 'script'; Stats.Reset(); Runner._notify();
       try { W.AqwNative.keepOn(true); } catch (e) {}
       log('▶ "' + Runner.name + '" iniciado');
@@ -746,7 +983,7 @@
         if (String(e && e.message) === '__SKUA_STOP__') log('■ "' + Runner.name + '" parado');
         else { Runner.err = e; log('✖ ERRO: ' + (e && e.message ? e.message : e)); }
       } finally {
-        try { Events.emit('ScriptStopping', Runner.err || null); } catch (e) {} Runner.err = null; Runner.running = false; Skills.Stop(); Events.Clear();
+        try { Events.emit('ScriptStopping', Runner.err || null); } catch (e) {} Runner.err = null; Combat.StopAttacking = false; Runner.running = false; Skills.Stop(); Drops.Stop(); Events.Clear();
         if (!Auto.on) { try { W.AqwNative.keepOn(false); } catch (e) {} }
         Runner._notify();
       }

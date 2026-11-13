@@ -1,3 +1,17 @@
+#id 2026-11-13-c
+#titulo Combate, skills, drops e kill iguais ao Skua
+- Skills: mesmo motor do Skua (AdvancedSkillProvider), passa para a próxima skill se não puder usar, intervalo de 100 ms, Use if Available / Wait for Cooldown como na biblioteca
+- Combate: atacar por nome/ID, sair do combate, cancelar alvo e pausa no contra-ataque como no Skua
+- Monstros: Exists com nome exato e lista de monstros disponíveis igual ao Skua
+- Drops: lista, Add/Remove/Start/Stop, RejectExcept e pegar item como no Skua; Kill.ForItem agora é por eventos e para ao juntar a quantidade
+- Eventos com os mesmos argumentos do Skua (CellChanged, ItemDropped, ItemSold, TryBuyItem etc.)
+
+#id 2026-11-13-b
+#titulo Esperas dos bots iguais ao Skua
+- Wait reescrito igual ao Skua: mesmos tempos, intervalos e condições (ForPickup, ForMonsterDeath, ForMapLoad, ForQuestAccept, cooldown de ações etc.)
+- Missões carregam pelo mesmo comando do Skua e esperam o cooldown antes de aceitar/entregar
+- Entrar em mapa e pegar item do mapa esperam o cooldown como no Skua
+
 #id 2026-11-13-a
 #titulo Eventos do Skua completos
 - Novos eventos nos scripts: CellChanged, QuestAccepted, TryBuyItem, Logout, RunToArea, PlayerAFK e QuestTurnedIn, iguais ao Skua original
