@@ -1,10 +1,11 @@
-#id 2026-11-11-mod
-#titulo Cliente modificado do jogo (opcional, desligado por padrão)
-- O app agora serve uma versão modificada do Game.swf com funções para ler e comandar o jogo por dentro (vida, monstros, mapa, ações)
-- Diagnóstico: campo de caminho com Ler, Chaves, Tipo e Dump, e botão Cliente mod? para conferir se está ativo
-- Dump salva um arquivo que vai junto no Exportar arquivos do jogo, para montar os bots em cima dos nomes reais
-- Bot de combate: escolhe um monstro vivo na sua cela, mira nele e usa as skills em rodízio (campos no Diagnóstico: skills e intervalo, botão Bot)
-- Se o jogo for atualizado e o Game.swf mudar, a modificação não é aplicada (o jogo continua normal)
+#id 2026-11-12-skua
+#titulo Skua Mobile: interface e funções do Skua no celular
+- Nova interface igual à do Skua: barra de menus (Scripts, Options, Helpers, Tools, Skills, Packets, Bank, Logs, Plugins), barra rápida com Jump e Auto, e janela do Bot com gaveta lateral
+- 20 telas: Scripts, Get Scripts, Game Options, Application, CoreBots, Themes, Runtime, Fast Travel, Current Drops, Loader, Grabber, Stats, Console, Advanced Skills, Packet Spammer, Packet Logger, Logs, Plugins, Diagnostics e About
+- Núcleo do Skua em JavaScript: Bot.Player, Map, Monsters, Kill, Hunt, Skills (sintaxe Advanced Skills), Quests, Shops, Inventory, Bank, Drops, Auras, Options e Send
+- Scripts em JavaScript assíncrono, por exemplo await Bot.Kill.Monster("Slime"); salve, importe e exporte seus scripts
+- Pacotes do servidor chegam ao script (drops, mortes, missões); botão Voltar fecha a janela do Bot
+- Precisa do Cliente modificado ligado (Options > Application) e de estar dentro de um mapa
 
 #id 2026-10-30-a
 #titulo Personagem fofinho de verdade

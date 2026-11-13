@@ -141,6 +141,10 @@ class MainActivity : AppCompatActivity() {
                 if (fullscreen) {
                     setFullscreen(false)
                     webView.evaluateJavascript("window.exitFs&&exitFs(true)", null)
+                } else if (localLoaded) {
+                    webView.evaluateJavascript("window.skuaBack?skuaBack():false") { r ->
+                        if (r != "true") { if (webView.canGoBack()) webView.goBack() else finish() }
+                    }
                 } else if (webView.canGoBack()) webView.goBack() else finish()
             }
         })
@@ -208,6 +212,11 @@ class MainActivity : AppCompatActivity() {
                         val txt = String(data, 0, n, Charsets.UTF_8).replace('\u0000', '\n').trim()
                         if (txt.isNotEmpty()) jsLog((if (toServer) ">> " else "<< ") + txt.take(400))
                     }
+                    if (forward) {
+                        val raw = org.json.JSONObject.quote(String(data, 0, n, Charsets.UTF_8))
+                        val dir = if (toServer) ">>" else "<<"
+                        handler.post { webView.evaluateJavascript("window.onPacket&&onPacket('$dir',$raw)", null) }
+                    }
                 })
                 it.start(); bridge = it
             }
@@ -231,6 +240,12 @@ class MainActivity : AppCompatActivity() {
         try {
             if (path == "/host.html") {
                 return WebResourceResponse("text/html", "utf-8", assets.open("host.html"))
+            }
+            if (path == "/skua.js" || path == "/skua-ui.js") {
+                return WebResourceResponse("application/javascript", "utf-8", assets.open(path.removePrefix("/")))
+            }
+            if (path == "/skills.txt") {
+                return WebResourceResponse("text/plain", "utf-8", assets.open("skills.txt"))
             }
             if ((path.startsWith("/p/") || path.startsWith("/ph/")) && request.method == "GET") {
                 val http = path.startsWith("/ph/")
@@ -386,6 +401,7 @@ class MainActivity : AppCompatActivity() {
 
     @Volatile private var localLoaded = false
     @Volatile private var capture = false
+    @Volatile private var forward = true
     private var fullscreen = false
     private var origPad = intArrayOf(0, 0, 0, 0)
 
@@ -448,6 +464,16 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 jsLog("saveText falhou: " + e.message)
             }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun forward(on: Boolean) {
+            if (localLoaded) forward = on
+        }
+
+        @android.webkit.JavascriptInterface
+        fun openSettings() {
+            if (localLoaded) runOnUiThread { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }
         }
 
         @android.webkit.JavascriptInterface
