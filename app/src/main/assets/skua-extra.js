@@ -224,7 +224,19 @@
   // ---------- Bank / House ----------
   var B = Bot.Bank;
   if (!('Loaded' in B)) { var bankForced = false; Object.defineProperty(B, 'Loaded', { get: function () { return bankForced || (get('world.bankinfo.items.length') || 0) > 0 || get('world.bankinfo.bLoaded') === true; }, set: function (v) { bankForced = !!v; }, enumerable: true, configurable: true }); }
-  addFn(B, 'Load', async function () { if (B.Loaded) return true; call('world.sendLoadBankRequest'); return Wt.ForBankLoad(); });
+  addFn(B, 'Load', async function () {
+    if (B.Loaded && B.Items && B.Items.length) return true;
+    var got = false, h = Bot.Events.On('BankLoaded', function () { got = true; });
+    try {
+      for (var t = 0; t < 3 && !got && !(B.Items && B.Items.length); t++) {
+        Bot.Send.Packet('%xt%zm%loadBank%' + (Bot.Map.RoomID || 1) + '%All%');
+        for (var w = 0; w < 16 && !got && !(B.Items && B.Items.length); w++) await sleep(250);
+      }
+    } finally { Bot.Events.Off('BankLoaded', h); }
+    B.Loaded = true;
+    try { if (get('ui.mcPopup.currentLabel') === '"Bank"') call('world.toggleBank'); } catch (e) {}
+    return true;
+  });
   addFn(B, 'EnsureToInventory', async function (q) { await B.Load(); for (var i = 0; i < 5; i++) { if (Inv.Contains(q)) return true; await B.ToInventory(q); await sleep(O.ActionDelay); } return Inv.Contains(q); });
   addFn(B, 'Swap', async function (invItem, bankItem) { await B.Load(); await B.ToInventory(bankItem); await Inv.ToBank(invItem); return true; });
   addFn(B, 'EnsureSwap', B.Swap);
