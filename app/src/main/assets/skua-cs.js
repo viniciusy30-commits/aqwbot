@@ -107,7 +107,7 @@
   var PRIM = { int: 1, long: 1, double: 1, float: 1, string: 1, char: 1, bool: 1, byte: 1, short: 1, uint: 1, ulong: 1, ushort: 1, decimal: 1, object: 1, sbyte: 1, Int32: 1, Int64: 1 };
 
   function Parser(toks, sigs, opts) {
-    this.t = toks; this.i = 0; this.sigs = sigs || {}; this.newSigs = {}; this.opts = opts || {};
+    this.t = toks; this.i = 0; this.sigs = sigs || {}; this.newSigs = {}; this.sigLists = Object.create(null); this.unres = []; this.opts = opts || {};
     this.scopes = []; this.cls = null; this.asyncOk = true; this.hoist = null; this.lambdaDepth = 0; this.catchVar = null; this.tmpN = 0;
     this.out = []; this.sriptClass = null;
   }
@@ -349,6 +349,7 @@
     if (this.is('(')) { // método
       var p = this.parseParams(); while (this.is('where')) { while (!this.is('{') && !this.is('=>') && !this.is(';')) this.next(); }
       this.newSigs[(isStatic ? cname + '.' : '') + name] = p.names;
+      (this.sigLists[(isStatic ? cname + '.' : '') + name] = this.sigLists[(isStatic ? cname + '.' : '') + name] || []).push(p.names);
       if (this.is(';')) { this.next(); return ''; } // abstrato
       var isAsync = true;
       var b;
@@ -709,7 +710,10 @@
   PP.emitCall = function (callee, args, userKey) {
     var pos = args.pos;
     if (args.hasNamed) {
-      var sig = userKey && (this.sigs[userKey]);
+      var nk = Object.keys(args.named), npos = pos.length;
+      var pick = function (L) { if (!L) return null; var best = null; for (var q = 0; q < L.length; q++) { var okk = nk.every(function (k) { return L[q].indexOf(k) >= 0; }); if (okk && L[q].length >= npos) return L[q]; if (okk && !best) best = L[q]; } return best; };
+      var sig = userKey && pick(this.sigs[userKey]);
+      if (!sig && !/^(this\.)?Bot\b/.test(callee)) { var mm2 = /([A-Za-z_]\w*)$/.exec(callee); if (mm2) { sig = pick(GSIGS[mm2[1]]); if (!sig) this.unres.push(mm2[1]); } }
       if (sig) { var out = pos.slice(); Object.keys(args.named).forEach(function (k) { var ix = sig.indexOf(k); if (ix < 0) ix = out.length; while (out.length < ix) out.push('undefined'); out[ix] = args.named[k]; }); pos = out; }
       else { var parts = Object.keys(args.named).map(function (k) { return k + ': ' + args.named[k]; }); pos = pos.concat(['{__named: true, ' + parts.join(', ') + '}']); }
     }
@@ -928,11 +932,13 @@
   };
 
   // =============================== TRANSPILE ===============================
+  var GSIGS = Object.create(null);
   function transpile(src) {
     var directives = [];
     var sigs = {}, collect = [];
     var p1 = new Parser(tokenize(src, directives), {}, { collectClasses: collect });
-    p1.parseUnit(); sigs = p1.newSigs;
+    p1.parseUnit(); sigs = p1.sigLists;
+    Object.keys(p1.sigLists).forEach(function (k) { var nm = k.split('.').pop(); var L = GSIGS[nm] = GSIGS[nm] || []; p1.sigLists[k].forEach(function (names) { if (!L.some(function (x) { return x.join(',') === names.join(','); })) L.push(names); }); });
     var collect2 = [];
     var p2 = new Parser(tokenize(src, []), sigs, { collectClasses: collect2 });
     var js = p2.parseUnit();
@@ -944,7 +950,7 @@
     collect2.forEach(function (c) { if (c.members.inst.ScriptMain) scriptClass = c.name; });
     var includes = [];
     directives.forEach(function (d) { var mm = /^\/\/cs_include\s+(.+)$/.exec(d); if (mm) includes.push(mm[1].trim()); });
-    return { js: js, scriptClass: scriptClass, includes: includes, directives: directives };
+    return { js: js, scriptClass: scriptClass, includes: includes, directives: directives, unres: p2.unres, src: src };
   }
 
   // =============================== RUNTIME ===============================
@@ -1210,6 +1216,11 @@
       try { var txt = await fetchText(inc.replace(/^Scripts\//, '')); var sub = transpile(txt); body = sub.js + '\n' + body; (sub.includes || []).forEach(function (x) { if (!CORE_INCLUDES.test(x)) warnings.push('include aninhado ignorado: ' + x); }); }
       catch (e) { warnings.push('include ' + inc + ' falhou: ' + e.message); }
     }
+    // argumentos nomeados que apontam para métodos de outros arquivos: agora que todos foram lidos, converte de novo
+    function needs(t) { return (t.unres || []).some(function (n) { return GSIGS[n]; }); }
+    Object.keys(tcache).forEach(function (k) { if (needs(tcache[k])) { var nt = transpile(tcache[k].src); tcache[k] = nt; } });
+    if (needs(tr)) tr = transpile(src);
+    parts = []; (function rebuild() { var done = {}; (function walk(list) { for (var i = 0; i < list.length; i++) { var rel = list[i].replace(/^Scripts\//, '').replace(/^\.?\//, ''); if (done[rel] || !tcache[rel]) continue; done[rel] = 1; walk(tcache[rel].includes || []); parts.push(tcache[rel].js); } })(tr.includes || []); })();
     if (!tr.scriptClass) throw new Error('Não achei a classe com o método ScriptMain(IScriptInterface bot)');
     var code = body + '\nvar __s = new ' + tr.scriptClass + '();\n' + 'if (__s.ScriptMain) await __s.ScriptMain(Bot);\n';
     return { code: code, warnings: warnings, scriptClass: tr.scriptClass };

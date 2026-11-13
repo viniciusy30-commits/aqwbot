@@ -2,7 +2,11 @@ process.on('unhandledRejection',e=>console.log('UNHANDLED',e&&e.message));
 const fs=require('fs'),path=require('path');
 const _st=global.setTimeout;global.setTimeout=(f,ms,...a)=>_st(f,ms>1000&&ms!==+process.argv[3]&&ms!==8000?Math.ceil(ms/200):Math.ceil((ms||0)/ (ms>1000?1:20)),...a);global.window=global;global.localStorage={_d:{},getItem(){return null},setItem(){}};
 const G={'world.myAvatar':{},'ui.mcPopup.currentLabel':'"Bank"','world.myAvatar.items.length':50,'world.myAvatar.objData.strUsername':'tester','world.myAvatar.pMC.pname.ti.text':'tester','world.strMapName':'battleon','world.myAvatar.dataLeaf.intLevel':20,'world.myAvatar.objData.intLevel':20,'world.myAvatar.dataLeaf.intHP':100,'world.myAvatar.dataLeaf.intHPMax':100,'world.myAvatar.dataLeaf.intState':1};
-window.aqw={ok:()=>true,get:(k)=>k in G?G[k]:null,set(){},keys:()=>[],target(){},cast(){},call:()=>null};
+window.aqw={ok:()=>true,get:(k)=>k in G?G[k]:null,set(){},keys:()=>[],target(){},cast(){},call:(p,a)=>{
+ if(process.env.CALLS)console.log('CALL',p,JSON.stringify(a||[]).slice(0,120));
+ if(p==='world.moveToCell'){G['world.strFrame']=a[0];G['world.strPad']=a[1];return null}
+ if(p.indexOf('sfc.send')===0){const m=String(a[0]).match(/tfer%[^%]*%([^%]+)%([^%]*)%([^%]*)%/);if(m){G['world.strMapName']=m[1].split('-')[0];G['world.strFrame']=m[2];G['world.strPad']=m[3];}return null}
+ return null}};
 eval(fs.readFileSync('skua.js','utf8'));eval(fs.readFileSync('skua-extra.js','utf8'));eval(fs.readFileSync('skua-cs.js','utf8'));
 const root='/home/claude/rep/Scripts-Skua';const rel=process.argv[2];const T=+process.argv[3]||8000;
 (async()=>{

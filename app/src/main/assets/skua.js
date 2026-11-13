@@ -528,7 +528,7 @@
     },
     Load: async function () {
       var ids = [].slice.call(arguments).reduce(function (a, b) { return a.concat(b); }, []);
-      for (var i = 0; i < ids.length; i += 30) { call('world.showQuests', [ids.slice(i, i + 30).join(','), 'q']); if (ids.length > 30) await sleep(Options.ActionDelay); }
+      for (var i = 0; i < ids.length; i += 30) { Send.Packet('%xt%zm%getQuests%' + (Map.RoomID || 1) + '%' + ids.slice(i, i + 30).join(',') + '%'); if (ids.length > 30) await sleep(Options.ActionDelay); }
     },
     EnsureLoad: async function (id) {
       await Wait.ForTrue(function () { return Quests.Tree.some(function (q) { return q.ID === id; }); }, 20, 1000).then(function (x) { return x; }, function () {});
