@@ -1027,6 +1027,8 @@
   def(SP, 'ToLowerInvariant', function () { return this.toLowerCase(); }); def(SP, 'ToUpperInvariant', function () { return this.toUpperCase(); });
   def(SP, 'Trim', function () { return this.trim(); }); def(SP, 'TrimStart', function () { return this.trimStart(); }); def(SP, 'TrimEnd', function () { return this.trimEnd(); });
   def(SP, 'Substring', function (a, n) { return n === undefined ? this.substring(a) : this.substr(a, n); });
+  def(SP, 'AsSpan', function (a, n) { return a === undefined ? String(this) : (n === undefined ? this.substring(a) : this.substr(a, n)); });
+  def(SP, 'AsMemory', function (a, n) { return a === undefined ? String(this) : (n === undefined ? this.substring(a) : this.substr(a, n)); });
   def(SP, 'IndexOf', function (s, a, cmp) { return this.indexOf(s, typeof a === 'number' ? a : 0); });
   def(SP, 'Replace', function (a, b) { return this.split(a).join(b); });
   def(SP, 'Split', function (sep) { var seps = [].concat(sep && sep.__named ? [] : sep).filter(function (x) { return typeof x === 'string'; }); var a = [String(this)]; seps.forEach(function (s) { a = [].concat.apply([], a.map(function (p) { return p.split(s); })); }); return seps.length ? a : String(this).split(/\s+/); });
