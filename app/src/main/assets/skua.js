@@ -122,6 +122,8 @@
 
   function Skip() {
     var n = 0;
+    // Main.skipCutscenes: remove o que estiver em mcExtSWF e mostra a interface; só mexe na tela quando existe cutscene de fato
+    if ((get('mcExtSWF.numChildren') || 0) <= 0) return;
     while ((get('mcExtSWF.numChildren') || 0) > 0 && n++ < 20) call('mcExtSWF.removeChildAt', [0]);
     call('showInterface');
   }
@@ -169,6 +171,7 @@
     else if (c === 'buyItem') Events.emit('TryBuyItem', parseInt(q[6], 10), parseInt(q[5], 10), parseInt(q[7], 10));
     else if (c === 'cmd' && q[5] === 'logout') Events.emit('Logout');
   }
+  var ITEM_CMDS = { addItems: 1, getDrop: 1, buyItem: 1, sellItem: 1, loadBank: 1, ccqr: 1, equipItem: 1, unequipItem: 1, dropItem: 1, turnIn: 1, bankToInv: 1, bankFromInv: 1, removeItem: 1, updateQuest: 1, moveToArea: 1, initUserData: 1, loadInventory: 1 };
   function handlePacket(raw) {
     var cmd = null, o = null, str = null;
     if (raw.charAt(0) === '{') {
@@ -177,6 +180,7 @@
     } else if (raw.charAt(0) === '%') {
       str = raw.split('%'); cmd = str[2];
     } else return;
+    if (ITEM_CMDS[cmd]) dropItemCache();
     switch (cmd) {
       case 'moveToArea':
         // ScriptInterface: reaplica nome/guilda personalizados, guarda arquivo e nome do mapa
@@ -435,13 +439,13 @@
       var out = [], n = get('world.monsters.length') || 0;
       for (var i = 0; i < n; i++) {
         var d = 'world.monsters.' + i;
-        out.push({
+        out.push(lazy({
           Index: i, Name: get(d + '.objData.strMonName'), ID: get(d + '.objData.MonID'),
-          MapID: get(d + '.dataLeaf.MonMapID') || get(d + '.objData.MonMapID'),
-          Cell: get(d + '.dataLeaf.strFrame'), HP: get(d + '.dataLeaf.intHP'),
-          MaxHP: get(d + '.dataLeaf.intHPMax'), State: get(d + '.dataLeaf.intState'),
-          Race: get(d + '.objData.sRace')
-        });
+          MapID: get(d + '.dataLeaf.MonMapID') || get(d + '.objData.MonMapID'), Cell: get(d + '.dataLeaf.strFrame')
+        }, {
+          HP: function () { return get(d + '.dataLeaf.intHP'); }, MaxHP: function () { return get(d + '.dataLeaf.intHPMax'); },
+          State: function () { return get(d + '.dataLeaf.intState'); }, Race: function () { return get(d + '.objData.sRace'); }
+        }));
       }
       return out;
     },
@@ -674,16 +678,30 @@
   };
 
   // ---------------- inventário / banco ----------------
+  // objeto com campos lidos sob demanda (cada leitura é uma chamada síncrona ao Flash, que divide a thread com o jogo)
+  function lazy(base, getters) {
+    Object.keys(getters).forEach(function (k) { Object.defineProperty(base, k, { get: getters[k], enumerable: true, configurable: true }); });
+    return base;
+  }
+  // cache curto (500 ms) das listas de itens: CheckInventory é chamado em loop e cada leitura custa uma chamada ao Flash por item.
+  // Pacotes que mexem em item (addItems, getDrop, buyItem, banco...) invalidam na hora.
+  var itemCache = {};
+  function dropItemCache() { itemCache = {}; }
   function itemsAt(path) {
+    var c = itemCache[path], now = Date.now();
+    if (c && now - c.t < 500) return c.v.slice();
+    var v = itemsAtRaw(path); itemCache[path] = { t: now, v: v };
+    return v.slice();
+  }
+  function itemsAtRaw(path) {
     var out = [], n = get(path + '.length') || 0;
     for (var i = 0; i < n; i++) {
       var p = path + '.' + i;
-      out.push({
-        ID: get(p + '.ItemID'), CharItemID: get(p + '.CharItemID'), Name: get(p + '.sName'),
-        Quantity: get(p + '.iQty') || 0, MaxStack: get(p + '.iStk'), Category: get(p + '.sType'),
-        Equipped: !!get(p + '.bEquip'), Upgrade: !!get(p + '.bUpg'), Coins: !!get(p + '.bCoins'),
-        Temp: !!get(p + '.bTemp'), Path: p
-      });
+      out.push(lazy({ ID: get(p + '.ItemID'), Name: get(p + '.sName'), Quantity: get(p + '.iQty') || 0, Path: p }, {
+        CharItemID: function () { return get(p + '.CharItemID'); }, MaxStack: function () { return get(p + '.iStk'); }, Category: function () { return get(p + '.sType'); },
+        Equipped: function () { return !!get(p + '.bEquip'); }, Upgrade: function () { return !!get(p + '.bUpg'); }, Coins: function () { return !!get(p + '.bCoins'); },
+        Temp: function () { return !!get(p + '.bTemp'); }
+      }));
     }
     return out;
   }

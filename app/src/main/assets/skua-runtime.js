@@ -245,20 +245,21 @@
     else if (now - lastConnChange >= O.LoadTimeout && d === lastConnDetail && !relog.waiting && !unstickBusy) unstick(d);
     if (d !== lastConnDetail) { lastConnChange = now; lastConnDetail = d; }
   }
+  var playing = false;
   function tick() {
     try {
       if (!Bot.Ready) return;
-      if (get('world') !== null && P.Playing) {
-        Sv.LastIP = get('serverIP') || Sv.LastIP;
-        var u = P.Username; if (u) lastUser = u;
+      // "jogando?" custa várias chamadas ao Flash: consulta a cada 250 ms e reaproveita nos outros testes
+      lim('play', 250, function () { playing = get('world') !== null && P.Playing; if (playing) { var u = P.Username; if (u) lastUser = u; Sv.LastIP = get('serverIP') || Sv.LastIP; } });
+      if (playing) {
         if (O.RestPackets && !P.InCombat) lim('rest', 1200, function () { S.Packet('%xt%zm%restRequest%1%%'); });
         lim('opts', 250, checkOptions);
       }
-      lim('conn', 100, checkStuck);
+      lim('conn', 200, checkStuck);
       if (Runner.running) runHandlers();
     } catch (e) { dbg('timer: ' + e.message); }
   }
-  var timer = setInterval(tick, 50);
+  var timer = setInterval(tick, 100);
   W.SkuaRuntime = { tick: tick, handlers: Handlers, stop: function () { clearInterval(timer); } };
   W.SkuaRuntimeLoaded = true;
 })();

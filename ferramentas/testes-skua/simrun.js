@@ -1,6 +1,7 @@
 // Roda um script do Scripts-Skua (ou um .cs seu) no jogo simulado e diz se terminou, travou ou deu erro.
 //   node simrun.js <pasta Scripts-Skua> <script.cs relativo à pasta, ou caminho> [segundos virtuais] [cenario.js]
 // Os arquivos skua*.js são lidos de ../../app/src/main/assets (ou da pasta atual, se existirem).
+process.on('unhandledRejection', () => {}); // no WebView é só um aviso no console
 const fs = require('fs'), path = require('path');
 const root = path.resolve(process.argv[2] || '.'), rel = process.argv[3], maxS = +process.argv[4] || 1800;
 const scenario = process.argv[5] ? require(path.resolve(process.argv[5])) : {};
@@ -18,6 +19,8 @@ if (process.env.HOT) {
 if (process.env.TRACE) { // imprime as primeiras chamadas de métodos do Bot: TRACE=Combat.Attack,Map.Jump
   process.env.TRACE.split(',').forEach(n => { const [a, b] = n.split('.'); const o = a === 'Bot' ? Bot : Bot[a]; const f = o[b]; let c = 0; o[b] = function () { const r = f.apply(this, arguments); if (c++ < 8) Promise.resolve(r).then(v => console.log('TRACE', n, JSON.stringify([].slice.call(arguments)), '=>', JSON.stringify(v))); return r; }; });
 }
+const prof = {};
+if (process.env.PROF) { const og = aqw.get; aqw.get = function (p) { const st = new Error().stack.split('\n').slice(2, 12).map(l => (l.match(/at (?:async )?(?:Object\.|Proxy\.|get )?([\w.$ ]+?) \(/) || [])[1]).filter(n => n && !/^(get|call|snap|keys|set|itemsAt|ok)$/.test(n)); const k = st.slice(0, 3).join(' < '); prof[k] = (prof[k] || 0) + 1; return og.apply(this, arguments); }; }
 const logs = []; SkuaInternal.Logs.sub((ch, l) => { if (ch === 'script' || process.env.DEBUG) logs.push(Math.round((sim.T.now - 1700000000000) / 1000) + 's [' + ch + '] ' + l.m); });
 (async () => {
   const file = fs.existsSync(path.join(root, rel)) ? path.join(root, rel) : rel;
@@ -30,6 +33,8 @@ const logs = []; SkuaInternal.Logs.sub((ch, l) => { if (ch === 'script' || proce
   console.log('Inventário:', S.W.myAvatar.items.map(i => i.sName + 'x' + i.iQty).join(', '), '| temp:', S.W.myAvatar.tempitems.map(i => i.sName + 'x' + i.iQty).join(', '));
   if (process.env.ERRS) { const e = logs.filter(l => /✖ ERRO/.test(l)).map(l => l.replace(/^\d+s \[script\] /, '')); console.log('ERRS:' + (e[0] || 'nenhum')); }
   if (process.env.HOT) console.log('mais chamados:\n' + Object.entries(hot).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => v + 'x ' + k).join('\n'));
+  if (process.env.RATE) console.log('chamadas/s ao jogo: get', Math.round(S.S.gets / res.virtualSeconds), 'set', Math.round(S.S.sets / res.virtualSeconds), 'keys', Math.round(S.S.keysN / res.virtualSeconds), '(gets/s)');
+  if (process.env.PROF) console.log('quem chama get:\n' + Object.entries(prof).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, v]) => Math.round(v / res.virtualSeconds) + '/s ' + k).join('\n'));
   if (process.env.CALLS) console.log('chamadas ao jogo:', JSON.stringify(S.S.calls), '| skills rodando:', Bot.Skills.TimerRunning, '| tem alvo:', Bot.Player.HasTarget, '| celas:', S.W.strFrame, '| estado:', Bot.Player.State);
   const n = +process.env.LINES || 25; console.log('--- últimas linhas do log ---\n' + logs.slice(-n).join('\n'));
   process.exit(res.status === 'done' ? 0 : 2);

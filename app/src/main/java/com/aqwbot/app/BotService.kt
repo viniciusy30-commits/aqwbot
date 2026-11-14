@@ -41,8 +41,12 @@ class BotService : Service() {
             .setOngoing(true)
             .setContentIntent(open)
             .build()
-        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        else startForeground(NOTIF_ID, n)
+        try {
+            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            else startForeground(NOTIF_ID, n)
+        } catch (_: Exception) {
+            // sem permissão de serviço em primeiro plano: segue só com os locks, sem derrubar o app
+        }
 
         try {
             if (wake == null) {

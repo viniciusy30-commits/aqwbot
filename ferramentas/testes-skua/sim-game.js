@@ -27,7 +27,7 @@ function install(g, opts) {
   g.window = g;
   g.location = { origin: 'https://appassets.local' };
   const store = {}; g.localStorage = { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
-  const S = { log: [], packetsOut: [], kills: 0, drops: 0, calls: {} };
+  const S = { log: [], packetsOut: [], kills: 0, drops: 0, calls: {}, gets: 0, sets: 0, keysN: 0 };
   const user = opts.user || 'tester';
 
   // ---------------------------------------------------------------- mundo
@@ -195,15 +195,15 @@ function install(g, opts) {
 
   g.aqw = {
     ok: () => true,
-    get: p => { const v = walk(p); if (v === undefined) throw new Error('!sem caminho ' + p); return ret(v); },
-    set: (p, v) => { const [o, k] = parent(p); if (o == null) throw new Error('!' + p); o[k] = v; return true; },
-    keys: p => { const v = walk(p); return v && typeof v === 'object' ? Object.keys(v) : []; },
+    get: p => { S.gets++; const v = walk(p); if (v === undefined) throw new Error('!sem caminho ' + p); return ret(v); },
+    set: (p, v) => { S.sets++; const [o, k] = parent(p); if (o == null) throw new Error('!' + p); o[k] = v; return true; },
+    keys: p => { S.keysN++; const v = walk(p); return v && typeof v === 'object' ? Object.keys(v) : []; },
     call: (p, a) => { S.calls[p] = (S.calls[p] || 0) + 1; const f = FN[p]; if (!f) { if (opts.strict) throw new Error('!chamada sem simulação ' + p); return null; } return ret(f(a || [])); },
     target: i => { const m = W.monsters[i]; if (m) W.myAvatar.target = m; return true; },
     cast: k => { const idx = +k - 48; W.autoActionTimer.running = false; return doSkill(idx); }
   };
   // 'get' do port trata exceção como null; aqw.get em caminho inexistente lança, igual ao jogo ('!erro')
-  const origGet = g.aqw.get; g.aqw.get = p => { const v = walk(p); return v === undefined ? null : ret(v); };
+  const origGet = g.aqw.get; g.aqw.get = p => { S.gets++; const v = walk(p); return v === undefined ? null : ret(v); };
   void origGet;
 
   // entra no mapa inicial

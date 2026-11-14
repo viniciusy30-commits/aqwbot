@@ -491,8 +491,9 @@
   };
   PP.loopBody = function () {
     var b;
-    if (this.is('{')) { b = '{ __chk();\n' + this.parseBlock() + '\n}'; }
-    else { this.pushScope(); var s = this.parseStatement(); this.popScope(); b = '{ __chk(); ' + (s && s.js !== undefined ? s.js : s) + ' }'; }
+    var ck = this.asyncOk ? '(await __chk());' : '__chk();'; // dentro de função async o laço pode ceder a vez ao navegador
+    if (this.is('{')) { b = '{ ' + ck + '\n' + this.parseBlock() + '\n}'; }
+    else { this.pushScope(); var s = this.parseStatement(); this.popScope(); b = '{ ' + ck + ' ' + (s && s.js !== undefined ? s.js : s) + ' }'; }
     return b;
   };
   PP.body = function () {
@@ -1320,7 +1321,18 @@
       f.__ext = true;
       Object.defineProperty(proto, name, { value: f, writable: true, configurable: true, enumerable: false });
     };
-    W.__chk = function () { if (Bot.ShouldExit) throw new Error('__SKUA_STOP__'); };
+    // Laço de script que não dorme (ex.: while(!ShouldExit) { MetodoQueRetornaLogo(); }) monopolizaria a única thread do WebView:
+    // o app e o jogo congelam. No Skua isso roda numa thread própria; aqui o laço cede a vez ao navegador a cada 20 ms ou 64 voltas.
+    var chkN = 0, chkT = Date.now();
+    W.__chk = function () {
+      if (Bot.ShouldExit) throw new Error('__SKUA_STOP__');
+      var n = Date.now();
+      var byCount = (++chkN & 63) === 0;
+      if (!byCount && n - chkT < 20) return;
+      chkT = n;
+      // girando sem dormir (64 voltas seguidas): descansa 10 ms para não fritar CPU/bateria; senão só cede a vez
+      return new Promise(function (r) { setTimeout(r, byCount ? 10 : 0); });
+    };
     W.CoreBots = Core; W.IScriptInterface = iface;
     Object.keys(libs).forEach(function (k) { W[k] = libs[k]; });
     ['Alignment', 'ClassType', 'EnhancementType', 'CapeSpecial', 'HelmSpecial', 'WeaponSpecial', 'ItemCategory', 'ClassUseMode', 'SkillUseMode', 'GameActions', 'HuntPriorities', 'StringComparison', 'ColorType', 'PrivateRoomsEnum', 'Side'].forEach(function (n) { W[n] = enumProxy(n); });

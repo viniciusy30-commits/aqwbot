@@ -131,23 +131,26 @@
     return out;
   }
   function questModel(k) {
-    var p = 'world.questTree.' + k, g = function (n) { return get(p + '.' + n); };
-    var st = g('status'), o = {
-      ID: parseInt(k, 10), Slot: g('iSlot') === null ? -1 : g('iSlot'), Value: g('iValue') || 0, Name: g('sName'), Description: g('sDesc') || '', EndText: g('sEndText') || '',
-      Once: !!g('bOnce') && g('bOnce') !== '0', Field: g('sField') || '', Index: g('iIndex') === null ? -1 : g('iIndex'), Upgrade: !!g('bUpg') && g('bUpg') !== '0', Level: g('iLvl') || 0,
-      RequiredClassID: g('iClass') || 0, RequiredClassPoints: g('iReqCP') || 0, RequiredFactionId: g('FactionID') || 0, RequiredFactionRep: g('iReqRep') || 0,
-      Gold: g('iGold') || 0, XP: g('iExp') || 0, Status: st, Active: st !== null && st !== undefined
-    };
-    var cache = {};
-    Object.defineProperty(o, 'AcceptRequirements', { enumerable: true, get: function () { return cache.a || (cache.a = itemDict(p + '.oReqd', 0)); } });
-    Object.defineProperty(o, 'Requirements', { enumerable: true, get: function () {
+    var p = 'world.questTree.' + k, g = function (n) { return get(p + '.' + n); }, o = { ID: parseInt(k, 10) }, cache = {};
+    function L(name, fn) { Object.defineProperty(o, name, { enumerable: true, configurable: true, get: fn }); }
+    L('Slot', function () { var v = g('iSlot'); return v === null ? -1 : v; });
+    L('Value', function () { return g('iValue') || 0; }); L('Name', function () { return g('sName'); });
+    L('Description', function () { return g('sDesc') || ''; }); L('EndText', function () { return g('sEndText') || ''; });
+    L('Once', function () { return !!g('bOnce') && g('bOnce') !== '0'; }); L('Field', function () { return g('sField') || ''; });
+    L('Index', function () { var v = g('iIndex'); return v === null ? -1 : v; }); L('Upgrade', function () { return !!g('bUpg') && g('bUpg') !== '0'; });
+    L('Level', function () { return g('iLvl') || 0; }); L('RequiredClassID', function () { return g('iClass') || 0; });
+    L('RequiredClassPoints', function () { return g('iReqCP') || 0; }); L('RequiredFactionId', function () { return g('FactionID') || 0; });
+    L('RequiredFactionRep', function () { return g('iReqRep') || 0; }); L('Gold', function () { return g('iGold') || 0; }); L('XP', function () { return g('iExp') || 0; });
+    L('Status', function () { return g('status'); }); L('Active', function () { var st = g('status'); return st !== null && st !== undefined; });
+    L('AcceptRequirements', function () { return cache.a || (cache.a = itemDict(p + '.oReqd', 0)); });
+    L('Requirements', function () {
       if (cache.r) return cache.r;
       var r = itemDict(p + '.oItems', 0), n = get(p + '.turnin.length') || 0;
       for (var i = 0; i < n; i++) { var id = get(p + '.turnin.' + i + '.ItemID'), q = get(p + '.turnin.' + i + '.iQty'); r.forEach(function (x) { if (x.ID === id && q !== null) x.Quantity = q; }); }
       return (cache.r = r);
-    } });
-    Object.defineProperty(o, 'Rewards', { enumerable: true, get: function () { return cache.w || (cache.w = itemDict(p + '.oRewards', 2)); } });
-    Object.defineProperty(o, 'SimpleRewards', { enumerable: true, get: function () { var n = get(p + '.reward.length') || 0, l = []; for (var i = 0; i < n; i++) l.push({ ID: get(p + '.reward.' + i + '.ItemID'), Quantity: get(p + '.reward.' + i + '.iQty') || 1, Type: get(p + '.reward.' + i + '.sType') }); return l; } });
+    });
+    L('Rewards', function () { return cache.w || (cache.w = itemDict(p + '.oRewards', 2)); });
+    L('SimpleRewards', function () { var n = get(p + '.reward.length') || 0, l = []; for (var i = 0; i < n; i++) l.push({ ID: get(p + '.reward.' + i + '.ItemID'), Quantity: get(p + '.reward.' + i + '.iQty') || 1, Type: get(p + '.reward.' + i + '.sType') }); return l; });
     return o;
   }
   Object.defineProperty(Q, 'Tree', { get: function () { return keys('world.questTree').map(questModel); }, enumerable: true, configurable: true });
