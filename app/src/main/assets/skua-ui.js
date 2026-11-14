@@ -22,7 +22,7 @@
   function esc(s) { return String(s === null || s === undefined ? '' : s); }
   function toast(m) { var t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove('on'); }, 2200); }
   function fmtT(ms) { var s = Math.floor(ms / 1000), hh = Math.floor(s / 3600), mm = Math.floor(s % 3600 / 60); return (hh ? hh + 'h ' : '') + mm + 'm ' + (s % 60) + 's'; }
-  function need() { if (!W.Bot || !W.Bot.Ready) { toast('Cliente modificado indisponível: ligue em Options › Application e entre num mapa'); return false; } return true; }
+  function need() { if (!W.Bot || !W.Bot.Ready) { toast(W.aqwWhyNot ? W.aqwWhyNot() : 'Entre no jogo antes de iniciar o bot'); return false; } return true; }
   function dl(name, text) { try { W.AqwNative.saveText(name, text); toast('Salvo: ' + name + ' (Exportar arquivos do jogo)'); } catch (e) { toast('Não foi possível salvar'); } }
 
   // ---------- tema ----------
@@ -364,7 +364,7 @@ body.fs #game{position:fixed;inset:0;z-index:5}
     var el = h('div', {}); b.append(el);
     every(800, function () {
       var B = W.Bot; el.innerHTML = '';
-      if (!B.Ready) { el.append(card('', h('div', {}, 'Cliente modificado indisponível. Ligue em Options › Application, recarregue e entre num mapa.'))); return; }
+      if (!B.Ready) { el.append(card('', h('div', {}, W.aqwWhyNot ? W.aqwWhyNot() : 'Entre no jogo antes.'))); return; }
       var P = B.Player, hp = P.MaxHealth ? Math.round(P.Health / P.MaxHealth * 100) : 0, mp = P.MaxMana ? Math.round(P.Mana / P.MaxMana * 100) : 0;
       el.append(card('Jogador', h('div', {}, P.Username + '  •  Lv ' + esc(P.Level) + '  •  ' + esc(P.Gold) + ' gold'),
         h('div', { class: 'lbl' }, 'HP ' + P.Health + '/' + P.MaxHealth), h('div', { class: 'bar hp' }, h('i', { style: 'width:' + hp + '%' })),

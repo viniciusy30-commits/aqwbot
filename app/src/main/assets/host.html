@@ -56,7 +56,14 @@ var PORT=q.get('port'),TOKEN=q.get('token');
 var logEl=document.getElementById('log'),logOn=false,buf=[];
 var NOISE=/focus_tracker|stub\.rs|library\.rs|Unknown device font|Focus is now/;
 var modBuf=[];
-function hostLog(m,c){
+window.aqwModMsg='';
+window.aqwWhyNot=function(){
+  var m=document.getElementById('mod');
+  if(m&&!m.checked)return 'Cliente modificado desligado. Ligue em Options › Application, recarregue o jogo e entre num mapa.';
+  if(/nao e a versao analisada|falhou|desligado/.test(window.aqwModMsg))return 'O jogo foi atualizado e a modificação não encaixou ('+window.aqwModMsg.replace('CLIENTE MOD: ','')+'). Preciso do novo Game.swf para atualizar o app.';
+  return 'Entre no jogo (login e um mapa) antes de iniciar o bot. Se já está dentro, recarregue o jogo uma vez.';
+};
+function hostLog(m,c){if(/^CLIENTE MOD:/.test(m))window.aqwModMsg=String(m);
   if(/AQWMOD/.test(m)){modBuf.push(String(m).replace(/%c/g,'').substring(0,300));if(modBuf.length>30)modBuf.shift();}
   if(NOISE.test(m)&&!/AQWMOD/.test(m))return;
   m=String(m).replace(/%c/g,'').replace(/ color: [^ ]+; background: #444 color: gray; font-style: italic color: inherit/g,'');
@@ -74,7 +81,8 @@ $('swf').value=q.get('swf')||DEF_SWF;
 $('sock').value=ls('sock')||'';
 $('q').value=ls('quality')||'low';
 $('f30').checked=ls('f30')==='1';
-$('mod').checked=ls('mod')==='1';
+if(ls('modv')!=='2'){ls('modv','2');ls('mod','1');} /* cliente modificado LIGADO por padrão (os bots dependem dele) */
+$('mod').checked=ls('mod')!=='0';
 $('rend').value=ls('rend')||'wgpu-webgl';
 $('res').value=ls('res2')||'1';
 var STEPS=[1,0.85,0.7,0.55,0.4,0.3],stepI=1,lastDrop=0;

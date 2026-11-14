@@ -290,7 +290,7 @@ class MainActivity : AppCompatActivity() {
     private val modOrigSha = "5590293fc30337c8d5ca6c7d4e518843cbecf802ff6e3b8c4d875d82dee9f49d"
     private val modOrigSize = 2812559
 
-    @Volatile private var clientMod = false
+    @Volatile private var clientMod = true
 
     private fun applyClientMod(b: ByteArray): ByteArray {
         try {

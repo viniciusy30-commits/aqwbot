@@ -1027,7 +1027,7 @@
     _notify: function () { Runner.subs.forEach(function (f) { try { f(Runner.running); } catch (e) {} }); },
     Start: async function (code, name) {
       if (Runner.running) { log('já existe um script rodando'); return; }
-      if (!ok()) { log('Cliente modificado indisponível: ligue "Cliente modificado" em Options > Application, recarregue e entre num mapa'); return; }
+      if (!ok()) { log('⚠ ' + (W.aqwWhyNot ? W.aqwWhyNot() : 'Entre no jogo antes de iniciar o bot.')); return; }
       if (Options.AcceptAllDrops || Options.AcceptACDrops || Options.RejectAllDrops) Drops.Start();
       // ScriptManager.StartScriptAsync: Handlers.Clear() ao iniciar; guarda o script para o Auto Relogin reiniciar
       Runner.lastCode = code; Runner.lastName = name || 'script';
