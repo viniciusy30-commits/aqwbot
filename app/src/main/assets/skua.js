@@ -1041,7 +1041,7 @@
         log('✔ "' + Runner.name + '" finalizado');
       } catch (e) {
         if (String(e && e.message) === '__SKUA_STOP__') log('■ "' + Runner.name + '" parado');
-        else { Runner.err = e; log('✖ ERRO: ' + (e && e.message ? e.message : e)); }
+        else { Runner.err = e; log('✖ ERRO: ' + (e && e.message ? e.message : e)); try { Logs.add('debug', String(e && e.stack)); } catch (x) {} }
       } finally {
         try { Events.emit('ScriptStopping', Runner.err || null); } catch (e) {} Runner.err = null; Combat.StopAttacking = false; Runner.running = false; Skills.Stop(); Drops.Stop(); Events.Clear();
         // ScriptOption.ScriptStopped: desliga o que o script ligou

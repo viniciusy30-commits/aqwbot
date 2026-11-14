@@ -114,6 +114,44 @@
   };
   Bot.Reputation = R; Bot.Factions = R;
 
+  // ---------- Quests: modelo completo (Quest do Skua: Requirements, AcceptRequirements, Rewards, ...) ----------
+  function itemBase(path, key, qtyHint) {
+    var g = function (k) { return get(path + '.' + k); };
+    var id = g('ItemID'); if (id === null || id === undefined) id = parseInt(key, 10);
+    var q = g('iQty'); if (q === null || q === undefined) q = g('iQtyNow'); if (q === null || q === undefined) q = qtyHint;
+    return { ID: id, Name: g('sName') || '', Quantity: q === null || q === undefined ? 1 : q, Category: g('sType') || '', Temp: !!g('bTemp'), Coins: !!g('bCoins'), Upgrade: !!g('bUpg'), MaxStack: g('iStk'), Description: g('sDesc') || '' };
+  }
+  function itemDict(path, depth) {
+    var out = [], ks = keys(path);
+    ks.forEach(function (k) {
+      var p2 = path + '.' + k;
+      if (get(p2 + '.ItemID') !== null || (depth === 0 && get(p2 + '.sName') !== null)) out.push(itemBase(p2, k));
+      else if (depth > 0) out = out.concat(itemDict(p2, depth - 1));
+    });
+    return out;
+  }
+  function questModel(k) {
+    var p = 'world.questTree.' + k, g = function (n) { return get(p + '.' + n); };
+    var st = g('status'), o = {
+      ID: parseInt(k, 10), Slot: g('iSlot') === null ? -1 : g('iSlot'), Value: g('iValue') || 0, Name: g('sName'), Description: g('sDesc') || '', EndText: g('sEndText') || '',
+      Once: !!g('bOnce') && g('bOnce') !== '0', Field: g('sField') || '', Index: g('iIndex') === null ? -1 : g('iIndex'), Upgrade: !!g('bUpg') && g('bUpg') !== '0', Level: g('iLvl') || 0,
+      RequiredClassID: g('iClass') || 0, RequiredClassPoints: g('iReqCP') || 0, RequiredFactionId: g('FactionID') || 0, RequiredFactionRep: g('iReqRep') || 0,
+      Gold: g('iGold') || 0, XP: g('iExp') || 0, Status: st, Active: st !== null && st !== undefined
+    };
+    var cache = {};
+    Object.defineProperty(o, 'AcceptRequirements', { enumerable: true, get: function () { return cache.a || (cache.a = itemDict(p + '.oReqd', 0)); } });
+    Object.defineProperty(o, 'Requirements', { enumerable: true, get: function () {
+      if (cache.r) return cache.r;
+      var r = itemDict(p + '.oItems', 0), n = get(p + '.turnin.length') || 0;
+      for (var i = 0; i < n; i++) { var id = get(p + '.turnin.' + i + '.ItemID'), q = get(p + '.turnin.' + i + '.iQty'); r.forEach(function (x) { if (x.ID === id && q !== null) x.Quantity = q; }); }
+      return (cache.r = r);
+    } });
+    Object.defineProperty(o, 'Rewards', { enumerable: true, get: function () { return cache.w || (cache.w = itemDict(p + '.oRewards', 2)); } });
+    Object.defineProperty(o, 'SimpleRewards', { enumerable: true, get: function () { var n = get(p + '.reward.length') || 0, l = []; for (var i = 0; i < n; i++) l.push({ ID: get(p + '.reward.' + i + '.ItemID'), Quantity: get(p + '.reward.' + i + '.iQty') || 1, Type: get(p + '.reward.' + i + '.sType') }); return l; } });
+    return o;
+  }
+  Object.defineProperty(Q, 'Tree', { get: function () { return keys('world.questTree').map(questModel); }, enumerable: true, configurable: true });
+
   // ---------- Quests ----------
   var regIds = [], regTimer = null, regBusy = false;
   Object.defineProperty(Q, 'RegisterCompleteInterval', { value: 2000, writable: true, enumerable: true, configurable: true });
@@ -389,7 +427,17 @@
   addFn(Bot.Manager, 'RestartScriptAsync', async function () { Bot.Log('⚠ Reiniciar script: reinicie o bot manualmente'); });
   var CF = Bot.Config;
   if (CF) {
-    CF.Options = CF.Options || []; CF.MultipleOptions = CF.MultipleOptions || {};
+    CF.Options = CF.Options || [];
+    // Dictionary<string, List<IOption>>: .Any(kv => kv.Value...), .Count, .Keys, .Values, .ContainsKey
+    if (!CF.MultipleOptions || !CF.MultipleOptions.Any) {
+      var mo = CF.MultipleOptions || {};
+      var meth = { Any: function (f) { var self = this; var es = Object.keys(self).map(function (k) { return { Key: k, Value: self[k] }; }); return f ? es.some(f) : es.length > 0; }, ContainsKey: function (k) { return k in this; }, TryGetValue: function (k) { return k in this ? this[k] : null; } };
+      Object.keys(meth).forEach(function (k) { Object.defineProperty(mo, k, { value: meth[k], enumerable: false, configurable: true, writable: true }); });
+      Object.defineProperty(mo, 'Count', { get: function () { return Object.keys(this).length; }, enumerable: false, configurable: true });
+      Object.defineProperty(mo, 'Keys', { get: function () { return Object.keys(this); }, enumerable: false, configurable: true });
+      Object.defineProperty(mo, 'Values', { get: function () { var s2 = this; return Object.keys(this).map(function (k) { return s2[k]; }); }, enumerable: false, configurable: true });
+      CF.MultipleOptions = mo;
+    }
     CF.Configure = CF.Configure || function () { return true; };
   }
   Bot.Flash = Bot.Flash || { GetArrayObject: function (p, i) { return get(p + '.' + i); }, Call: call, GetGameObject: get, SetGameObject: set, CallGameFunction: call, Get: get, Set: set };

@@ -9,6 +9,7 @@ const S = sim.install(global, scenario.opts || {});
 const A = fs.existsSync('skua.js') ? '.' : path.join(__dirname, '../../app/src/main/assets');
 for (const f of ['skua.js', 'skua-extra.js', 'skua-runtime.js', 'skua-cs.js']) (0, eval)(fs.readFileSync(path.join(A, f), 'utf8'));
 if (scenario.setup) scenario.setup(S);
+if (process.env.OVL) { const o = global.__ovl; SkuaCS.install(); const o2 = global.__ovl; global.__ovl = function (t, a) { const r = o2(t, a); console.log('OVL', r.f, JSON.stringify(a).slice(0, 120)); return r; }; const inst = SkuaCS.install; SkuaCS.install = function () { inst(); const x = global.__ovl; global.__ovl = function (t, a) { const r = x(t, a); if (process.env.OVL === '1' || r.f.indexOf(process.env.OVL) >= 0) console.log('OVL', r.f, JSON.stringify(a).slice(0, 120)); return r; }; }; }
 const hot = {}; // quem mais chama Bot.Sleep / Wait.ForTrue (mostra onde o bot está "girando")
 if (process.env.HOT) {
   const wrap = (obj, name, label) => { const f = obj[name]; obj[name] = function () { const st = new Error().stack.split('\n').slice(2, 6).map(l => (l.match(/<anonymous>:(\d+):\d+/) || [])[1] ? 'L' + l.match(/<anonymous>:(\d+):\d+/)[1] + ' ' + (l.match(/at (?:async )?([\w.$]+)/) || [])[1] : '').filter(Boolean).join(' < '); const k = label + ' ' + st; hot[k] = (hot[k] || 0) + 1; return f.apply(this, arguments); }; };
@@ -21,6 +22,7 @@ const logs = []; SkuaInternal.Logs.sub((ch, l) => { if (ch === 'script' || proce
 (async () => {
   const file = fs.existsSync(path.join(root, rel)) ? path.join(root, rel) : rel;
   const r = await SkuaCS.compileFull(fs.readFileSync(file, 'utf8'), async p => fs.readFileSync(path.join(root, p), 'utf8'), null, rel);
+  if (process.env.DUMP) fs.writeFileSync(process.env.DUMP, r.code);
   const p = SkuaRunner.Start(r.code, rel);
   const res = await sim.run(p, { maxSeconds: maxS });
   console.log('RESULTADO:', res.status, '| tempo virtual', Math.round(res.virtualSeconds) + 's', '| kills', S.S.kills, 'drops', S.S.drops, '| mapa', S.W.strMapName, S.W.strFrame);

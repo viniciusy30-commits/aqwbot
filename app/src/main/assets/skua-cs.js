@@ -370,6 +370,9 @@
       if (this.accept('=>')) { var save = this.snapshotFn(p, true); var e = this.parseExpr(); this.expect(';'); b = this.finishFn(save, 'return ' + e + ';'); }
       else b = this.parseFunctionBody(p, true, true);
       if (p.ext && isStatic && extra) { var extKey = 'ext$' + cname + '$' + name; if (!this.extSeen) this.extSeen = {}; if (!this.extSeen[extKey]) { this.extSeen[extKey] = 1; extra.push('__ext(' + cname + ', ' + JSON.stringify(name) + ', ' + JSON.stringify(p.types[0]) + ');'); } }
+      // params T[]: o C# aceita passar um array pronto; no JS o "...rest" o embrulharia de novo
+      var pi = p.prm.lastIndexOf(true);
+      if (pi >= 0 && !/\[\]\[\]|object\[\]/.test(p.types[pi])) { var pn = p.names[pi]; b = 'if (' + pn + '.length === 1 && Array.isArray(' + pn + '[0])) ' + pn + ' = ' + pn + '[0]; ' + b; }
       return prefix + 'async ' + emitName + '(' + p.js + ') { ' + b + ' }';
     }
     // propriedade
@@ -986,6 +989,8 @@
   var AP = Array.prototype, SP = String.prototype;
   function fnOf(f) { return typeof f === 'function' ? f : function (x) { return x === f; }; }
   def(AP, 'Add', function (x) { this.push(x); });
+  def(AP, 'Append', function (x) { return this.concat([x]); });
+  def(AP, 'Prepend', function (x) { return [x].concat(this); });
   ['Item1', 'Item2', 'Item3', 'Item4', 'Item5'].forEach(function (k, ix) { if (!Object.prototype.hasOwnProperty.call(AP, k)) Object.defineProperty(AP, k, { get: function () { return this[ix]; }, set: function (v) { this[ix] = v; }, configurable: true }); });
   def(AP, 'AddRange', function (l) { for (var i = 0, a = Array.from(l); i < a.length; i++) this.push(a[i]); });
   def(AP, 'Remove', function (x) { var i = this.indexOf(x); if (i < 0) return false; this.splice(i, 1); return true; });
@@ -993,7 +998,7 @@
   def(AP, 'RemoveAll', function (f) { var n = 0; for (var i = this.length - 1; i >= 0; i--) if (f(this[i])) { this.splice(i, 1); n++; } return n; });
   def(AP, 'Insert', function (i, x) { this.splice(i, 0, x); });
   def(AP, 'Clear', function () { this.length = 0; });
-  def(AP, 'Contains', function (x, cmp) { if (ci(cmp) || (typeof x === 'string' && cmp)) { var l = lcs(x); return this.some(function (y) { return lcs(y) === l; }); } return this.indexOf(x) > -1; });
+  def(AP, 'Contains', function (x, cmp) { if (typeof x === 'function') return this.some(x); /* extensão Skua: Contains(predicado) */ if (ci(cmp) || (typeof x === 'string' && cmp)) { var l = lcs(x); return this.some(function (y) { return lcs(y) === l; }); } return this.indexOf(x) > -1; });
   def(AP, 'Any', function (f) { return f ? this.some(f) : this.length > 0; });
   def(AP, 'All', function (f) { return this.every(f); });
   def(AP, 'Concat', function (o) { return this.concat(Array.from(o || [])); });
@@ -1074,6 +1079,11 @@
   Object.defineProperty(CsDict.prototype, 'Values', { get: function () { return Array.from(this.m.values()); } });
   Object.defineProperty(CsDict.prototype, 'length', { get: function () { return this.m.size; } });
   Object.defineProperty(CsDict.prototype, 'Count', { get: function () { return this.m.size; } });
+  // LINQ sobre Dictionary: itera como lista de {Key, Value}
+  ['First', 'FirstOrDefault', 'Last', 'LastOrDefault', 'Any', 'All', 'Where', 'Select', 'SelectMany', 'OrderBy', 'OrderByDescending', 'ThenBy', 'ToList', 'ToArray', 'Sum', 'Max', 'Min', 'Skip', 'Take', 'Find', 'FindAll', 'ForEach', 'Single', 'SingleOrDefault', 'GroupBy', 'Distinct', 'Count'].forEach(function (n) {
+    if (n === 'Count') return;
+    CsDict.prototype[n] = function () { var es = Array.from(this.m.entries()).map(function (x) { return { Key: x[0], Value: x[1] }; }); return es[n].apply(es, arguments); };
+  });
   CsDict.prototype[Symbol.iterator] = function () { var it = this.m.entries(); return { next: function () { var n = it.next(); return n.done ? n : { done: false, value: { Key: n.value[0], Value: n.value[1] } }; } }; };
   function CsHashSet(init) { var a = []; Object.setPrototypeOf(a, CsHashSet.prototype); (init ? Array.from(init) : []).forEach(function (x) { if (a.indexOf(x) < 0) a.push(x); }); return a; }
   CsHashSet.prototype = Object.create(Array.prototype); CsHashSet.prototype.Add = function (x) { if (this.indexOf(x) < 0) { this.push(x); return true; } return false; };
@@ -1274,6 +1284,30 @@
     W.NormalizationForm = W.NormalizationForm || { FormC: 'NFC', FormD: 'NFD', FormKC: 'NFKC', FormKD: 'NFKD' };
     W.UnicodeCategory = W.UnicodeCategory || { NonSpacingMark: 'NonSpacingMark', UppercaseLetter: 'UppercaseLetter', LowercaseLetter: 'LowercaseLetter', DecimalDigitNumber: 'DecimalDigitNumber', SpaceSeparator: 'SpaceSeparator', OtherLetter: 'OtherLetter' };
     W.CharUnicodeInfo = W.CharUnicodeInfo || { GetUnicodeCategory: function (c) { c = String(c); return /^\p{Mn}$/u.test(c) ? 'NonSpacingMark' : /^\p{Lu}$/u.test(c) ? 'UppercaseLetter' : /^\p{Ll}$/u.test(c) ? 'LowercaseLetter' : /^\p{Nd}$/u.test(c) ? 'DecimalDigitNumber' : /^\p{Zs}$/u.test(c) ? 'SpaceSeparator' : 'OtherLetter'; } };
+    // BCL / modelos do Skua usados pelos scripts e ainda ausentes
+    var G0 = function (n, v) { if (W[n] === undefined) W[n] = v; };
+    G0('JsonConvert', { SerializeObject: function (o) { return JSON.stringify(o); }, DeserializeObject: function (t) { try { return typeof t === 'string' ? JSON.parse(t) : t; } catch (e) { return null; } } });
+    G0('Formatting', { None: 0, Indented: 1 });
+    G0('EqualityComparer', { Default: { Equals: function (a, b) { return a === b || (a == null && b == null) || (a != null && b != null && typeof a === 'object' && JSON.stringify(a) === JSON.stringify(b)); } } });
+    G0('Comparer', { Default: { Compare: function (a, b) { return a < b ? -1 : a > b ? 1 : 0; } } });
+    G0('StringComparer', { OrdinalIgnoreCase: 'OrdinalIgnoreCase', Ordinal: 'Ordinal', InvariantCultureIgnoreCase: 'OrdinalIgnoreCase', CurrentCultureIgnoreCase: 'OrdinalIgnoreCase' });
+    G0('StringComparison', { OrdinalIgnoreCase: 'OrdinalIgnoreCase', Ordinal: 'Ordinal', InvariantCultureIgnoreCase: 'OrdinalIgnoreCase', CurrentCultureIgnoreCase: 'OrdinalIgnoreCase', CurrentCulture: 'Ordinal', InvariantCulture: 'Ordinal' });
+    G0('ClientFileSources', { SkuaDIR: 'Skua', SkuaScriptsDIR: 'Skua/Scripts', SkuaPluginsDIR: 'Skua/plugins', SkuaOptionsDIR: 'Skua/options', SkuaQuestsFile: 'Skua/QuestData.json', SkuaRepoDIR: 'Skua/repos', SkuaMapCacheDIR: 'Skua/cache' });
+    G0('GC', { Collect: function () {}, WaitForPendingFinalizers: function () {}, SuppressFinalize: function () {} });
+    G0('Process', { Start: function () { return null; }, GetCurrentProcess: function () { return { ProcessName: 'aqwbot', Kill: function () {} }; } });
+    G0('Uri', function (u) { this.u = u; this.toString = function () { return u; }; });
+    G0('KeyValuePair', function (k, v) { this.Key = k; this.Value = v; });
+    G0('ExpandoObject', function () { });
+    G0('Lazy', function (f) { var v, d = false; Object.defineProperty(this, 'Value', { get: function () { if (!d) { v = typeof f === 'function' ? f() : f; d = true; } return v; } }); });
+    G0('CancellationTokenSource', function () { var self = this; this.IsCancellationRequested = false; this.Token = { get IsCancellationRequested() { return self.IsCancellationRequested; }, ThrowIfCancellationRequested: function () { if (self.IsCancellationRequested) throw new Error('OperationCanceledException'); } }; this.Cancel = function () { self.IsCancellationRequested = true; }; this.Dispose = function () {}; });
+    G0('ItemBase', function () { this.ID = 0; this.Name = ''; this.Quantity = 0; this.Category = ''; this.Temp = false; this.Coins = false; });
+    G0('Quest', function () { this.ID = 0; this.Name = ''; this.Requirements = []; this.AcceptRequirements = []; this.Rewards = []; });
+    G0('Logger', function () { });
+    // System.Array estático
+    (function (A) {
+      var d = { IndexOf: function (a, x) { return a.indexOf(x); }, LastIndexOf: function (a, x) { return a.lastIndexOf(x); }, Empty: function () { return []; }, Exists: function (a, f) { return a.some(f); }, Find: function (a, f) { return a.find(f); }, FindIndex: function (a, f) { return a.findIndex(f); }, FindAll: function (a, f) { return a.filter(f); }, TrueForAll: function (a, f) { return a.every(f); }, Reverse: function (a) { a.reverse(); }, Sort: function (a, f) { if (typeof f === 'function') a.sort(f); else a.sort(function (x, y) { return x < y ? -1 : x > y ? 1 : 0; }); }, Copy: function (s, d2, n) { for (var i = 0; i < n; i++) d2[i] = s[i]; }, Clear: function (a, i, n) { for (var k = i || 0; k < (i || 0) + (n === undefined ? a.length : n); k++) a[k] = null; }, ConvertAll: function (a, f) { return a.map(f); }, ForEach: function (a, f) { a.forEach(f); } };
+      Object.keys(d).forEach(function (k) { if (!(k in A)) Object.defineProperty(A, k, { value: d[k], writable: true, configurable: true, enumerable: false }); });
+    })(Array);
     W.__ext = function (cls, name, type) {
       var t = String(type).replace(/\?$/, ''), proto;
       if (/^(string|String)$/.test(t)) proto = String.prototype;
@@ -1342,6 +1376,13 @@
   }
   async function compileFull(src, fetchText, onProgress, selfPath) {
     install();
+    // 1ª passada só para conhecer as assinaturas dos métodos de TODOS os arquivos incluídos (argumentos nomeados entre arquivos: Metodo(quant: 5));
+    // a 2ª passada compila de verdade com GSIGS completo.
+    if (!compileFull.warm) {
+      compileFull.warm = true;
+      try { await compileFull(src, fetchText, null, selfPath); } catch (e) { /* a 2ª passada reporta o erro */ } finally { compileFull.warm = false; }
+      for (var kc in tcache) delete tcache[kc];
+    }
     var tr = transpile(src), seen = {}, parts = [], warnings = [];
     if (selfPath) seen[selfPath.replace(/^Scripts\//, '')] = 1;
     async function loadInc(inc) {
