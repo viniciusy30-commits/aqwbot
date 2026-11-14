@@ -46,7 +46,8 @@ function install(g, opts) {
     },
     strMapName: '', curRoom: 1, strFrame: 'Enter', strPad: 'Spawn', mapLoadInProgress: false, areaUsers: [user.toLowerCase()],
     uoTree: {}, monsters: [], questTree: {}, shopinfo: { items: [] }, bankinfo: { items: [] }, WALKSPEED: 8, SCALE: 1, visible: true,
-    actions: { active: [0, 1, 2, 3, 4, 5].map(i => ({ ts: 0, cd: i === 0 ? 0 : 3000, mp: i === 0 ? 0 : 10, auto: i === 0, isOK: true, nam: 's' + i, range: 300 })) },
+    actionMap: { 49: 'aa', 50: 'a1', 51: 'a2', 52: 'a3', 53: 'a4', 54: 'i1' },
+    actions: { active: [0, 1, 2, 3, 4, 5].map(i => ({ ref: ['aa', 'a1', 'a2', 'a3', 'a4', 'i1'][i], ts: 0, cd: i === 0 ? 0 : 3000, mp: i === 0 ? 0 : 10, auto: i === 0, isOK: true, nam: 's' + i, range: 300 })) },
     lock: {}, GCDTS: 0, GCD: 0, autoActionTimer: { running: false }, map: { currentScene: { labels: [] }, children: { Left: 1, Spawn: 1, Center: 1 } }
   };
   ['loadShop', 'loadEnhShop', 'loadHairShop', 'equipItem', 'unequipItem', 'buyItem', 'sellItem', 'getMapItem', 'tryQuestComplete', 'acceptQuest', 'doIA', 'rest', 'who', 'tfer'].forEach(k => { W.lock[k] = { ts: 0, cd: 0 }; });
@@ -200,7 +201,7 @@ function install(g, opts) {
     keys: p => { S.keysN++; const v = walk(p); return v && typeof v === 'object' ? Object.keys(v) : []; },
     call: (p, a) => { S.calls[p] = (S.calls[p] || 0) + 1; const f = FN[p]; if (!f) { if (opts.strict) throw new Error('!chamada sem simulação ' + p); return null; } return ret(f(a || [])); },
     target: i => { const m = W.monsters[i]; if (m) W.myAvatar.target = m; return true; },
-    cast: k => { const idx = +k - 48; W.autoActionTimer.running = false; return doSkill(idx); }
+    cast: k => { const ref = W.actionMap[k]; const idx = W.actions.active.findIndex(a => a.ref === ref); if (idx < 0) return 'noact'; W.autoActionTimer.running = false; S.casts = S.casts || {}; S.casts[idx] = (S.casts[idx] || 0) + 1; return doSkill(idx); }
   };
   // 'get' do port trata exceção como null; aqw.get em caminho inexistente lança, igual ao jogo ('!erro')
   const origGet = g.aqw.get; g.aqw.get = p => { S.gets++; const v = walk(p); return v === undefined ? null : ret(v); };

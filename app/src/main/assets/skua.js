@@ -552,7 +552,19 @@
       return s.isOK !== false && (!s.skillLock || !s.lock);
     },
     CanUseSkill: function (i) { return Skills.CanUse(i); },
-    Use: function (i) { var k = i <= 9 ? 48 + i : i; try { return W.aqw.cast(String(k)); } catch (e) { return null; } },
+    // Main.useSkill(index): usa world.actions.active[index]. Aqui o cliente só expõe "apertar tecla" (aqwCastKey: actionMap[tecla] -> ação),
+    // então grava a referência da ação do índice numa tecla livre e aperta essa tecla (não depende do mapa de teclas do jogo).
+    // Plano B: tecla (49 + índice): a tecla 1 é o ataque automático (active[0]), 2..5 são as skills.
+    Use: function (i) {
+      try {
+        var ref = get('world.actions.active.' + i + '.ref'), r = 'noact';
+        if (typeof ref === 'string' && ref) { set('world.actionMap.9999', ref); r = W.aqw.cast('9999'); }
+        if (r === 'noact') r = W.aqw.cast(String(49 + i));
+        if (r === 'noact' && !Skills._warnedNoAct) { Skills._warnedNoAct = true; Logs.add('debug', 'skill ' + i + ': ação não encontrada (ref=' + ref + ')'); }
+        if ((Skills._useLog = (Skills._useLog || 0) + 1) <= 4) log('⚔ skill ' + i + ' → ' + r + (ref ? ' (' + ref + ')' : ''));
+        return r;
+      } catch (e) { return null; }
+    },
     UseSkill: function (i) { return Skills.Use(i); },
     // "3 | 4 S | 1 H<50 | 2 W500" — mesma sintaxe do Skua
     Parse: function (str) {

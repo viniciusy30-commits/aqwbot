@@ -35,6 +35,7 @@ const logs = []; SkuaInternal.Logs.sub((ch, l) => { if (ch === 'script' || proce
   if (process.env.HOT) console.log('mais chamados:\n' + Object.entries(hot).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => v + 'x ' + k).join('\n'));
   if (process.env.RATE) console.log('chamadas/s ao jogo: get', Math.round(S.S.gets / res.virtualSeconds), 'set', Math.round(S.S.sets / res.virtualSeconds), 'keys', Math.round(S.S.keysN / res.virtualSeconds), '(gets/s)');
   if (process.env.PROF) console.log('quem chama get:\n' + Object.entries(prof).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, v]) => Math.round(v / res.virtualSeconds) + '/s ' + k).join('\n'));
+  console.log('skills usadas (índice: vezes):', JSON.stringify(S.S.casts || {}));
   if (process.env.CALLS) console.log('chamadas ao jogo:', JSON.stringify(S.S.calls), '| skills rodando:', Bot.Skills.TimerRunning, '| tem alvo:', Bot.Player.HasTarget, '| celas:', S.W.strFrame, '| estado:', Bot.Player.State);
   const n = +process.env.LINES || 25; console.log('--- últimas linhas do log ---\n' + logs.slice(-n).join('\n'));
   process.exit(res.status === 'done' ? 0 : 2);
