@@ -116,6 +116,11 @@ var player=null;
         var bodyP=(init&&init.body!==undefined&&init.body!==null)?new Response(init.body).arrayBuffer():(src?src.arrayBuffer():Promise.resolve(new ArrayBuffer(0)));
         var ct=new Headers((init&&init.headers)||(isReq?input.headers:undefined)).get('content-type')||'';
         return bodyP.then(function(buf){
+          // Auto Relogin: guarda (só na memória) usuário/senha enviados ao login do jogo, para o bot conseguir logar de novo
+          try{if(/\/api\/login\/now/i.test(url)){var tx=new TextDecoder().decode(buf),u=null,p=null;
+            try{var jo=JSON.parse(tx);u=jo.user||jo.username||jo.strUsername||jo.name;p=jo.pass||jo.password||jo.strPassword;}
+            catch(e){var sp=new URLSearchParams(tx);u=sp.get('user')||sp.get('username')||sp.get('strUsername')||sp.get('name');p=sp.get('pass')||sp.get('password')||sp.get('strPassword');}
+            if(u&&p){window.AqwLoginCapture={user:String(u),pass:String(p)};}}}catch(e){}
           var r=JSON.parse(window.AqwNative.post(url,ct,b64(buf)));
           hostLog('POST '+url.replace(location.origin,'')+' -> '+r.status,r.status<400?'':'e');
           return new Response(unb64(r.body),{status:r.status,headers:r.type?{'content-type':r.type}:{}});
@@ -272,7 +277,7 @@ $('bot').onclick=function(){if(!bot.on&&!aqwNeed())return;botSet(!bot.on);};
 // ===== Skua (port JS + interface) =====
 (function(){
   function load(src,next){var s=document.createElement('script');s.src=src;s.onload=next||null;s.onerror=function(){hostLog(src+' não carregou','e');};document.head.appendChild(s);}
-  load('skua.js',function(){load('skua-extra.js',function(){load('skua-cs.js',function(){load('skua-ui.js');});});});
+  load('skua.js',function(){load('skua-extra.js',function(){load('skua-runtime.js',function(){load('skua-cs.js',function(){load('skua-ui.js');});});});});
 })();
 window.RufflePlayer=window.RufflePlayer||{};
 window.RufflePlayer.config={polyfills:false,autoplay:'on',unmuteOverlay:'hidden',logLevel:'warn'};

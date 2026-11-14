@@ -118,6 +118,8 @@ class MainActivity : AppCompatActivity() {
                 handler.postDelayed({ checkRuffle() }, 4000)
             }
         }
+        // Renderer em prioridade alta mesmo fora da tela (não rebaixar o WebView do bot)
+        if (android.os.Build.VERSION.SDK_INT >= 26) webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
         webView.addJavascriptInterface(Native(), "AqwNative")
         webView.webChromeClient = WebChromeClient()
 
@@ -243,7 +245,7 @@ class MainActivity : AppCompatActivity() {
             if (path == "/host.html") {
                 return WebResourceResponse("text/html", "utf-8", assets.open("host.html"))
             }
-            if (path == "/skua.js" || path == "/skua-ui.js" || path == "/skua-extra.js" || path == "/skua-cs.js") {
+            if (path == "/skua.js" || path == "/skua-ui.js" || path == "/skua-extra.js" || path == "/skua-cs.js" || path == "/skua-runtime.js") {
                 return WebResourceResponse("application/javascript", "utf-8", assets.open(path.removePrefix("/")))
             }
             if (path == "/skills.txt") {
@@ -464,8 +466,10 @@ class MainActivity : AppCompatActivity() {
         fun keepOn(on: Boolean) {
             if (!localLoaded) return
             runOnUiThread {
+                scriptActive = on
                 if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 else if (!running && !fullscreen) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                setBotService(on || running)
             }
         }
 
@@ -584,6 +588,7 @@ class MainActivity : AppCompatActivity() {
         running = true
         updateButtons()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        setBotService(true)
         handler.post(tick)
     }
 
@@ -591,6 +596,7 @@ class MainActivity : AppCompatActivity() {
         running = false
         handler.removeCallbacks(tick)
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        setBotService(scriptActive)
         updateButtons()
         setStatus("Parado", R.color.muted)
     }
@@ -618,9 +624,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
+    // Bot rodando (script do Skua ou loop de teclas): o WebView NÃO pode ser pausado, senão o script congela.
+    @Volatile private var scriptActive = false
+
+    private fun setBotService(on: Boolean) {
+        try {
+            val i = Intent(this, BotService::class.java)
+            if (on) ContextCompat.startForegroundService(this, i) else stopService(i)
+        } catch (e: Exception) {
+            jsLog("serviço em primeiro plano: " + e.message)
+        }
+    }
+
     override fun onPause() {
         super.onPause()
-        webView.onPause()
+        if (!(scriptActive || running)) webView.onPause()
     }
 
     override fun onResume() {
@@ -629,6 +647,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        setBotService(false)
         running = false
         handler.removeCallbacksAndMessages(null)
         pulse?.cancel()

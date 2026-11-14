@@ -40,8 +40,13 @@
   // ---------------- eventos ----------------
   var Events = {
     h: {},
-    On: function (n, f) { (Events.h[n] = Events.h[n] || []).push(f); return f; },
-    Off: function (n, f) { Events.h[n] = (Events.h[n] || []).filter(function (x) { return x !== f; }); },
+    // ctx: o "this" do script (métodos passados como handler: Bot.Events.X += Metodo). Off acha o handler pela função original.
+    On: function (n, f, ctx) {
+      var h = f;
+      if (ctx !== undefined && ctx !== null && typeof f === 'function') { h = function () { return f.apply(ctx, arguments); }; h.orig = f; }
+      (Events.h[n] = Events.h[n] || []).push(h); return h;
+    },
+    Off: function (n, f) { Events.h[n] = (Events.h[n] || []).filter(function (x) { return x !== f && x.orig !== f; }); },
     emit: function (n) { var a = [].slice.call(arguments, 1); (Events.h[n] || []).slice().forEach(function (f) { try { f.apply(null, a); } catch (e) { Logs.add('debug', 'evento ' + n + ': ' + e.message); } }); },
     Clear: function () { Events.h = {}; if (W.SkuaWaitRehook) W.SkuaWaitRehook(); }
   };
@@ -77,9 +82,9 @@
   }
   var magTimer = null;
   opt('SafeTimings', true, null, 'Safe Timings');
-  opt('ActionDelay', 700, null, 'Action Delay (ms)');
-  opt('JoinMapTries', 10, null, 'Join Map Tries');
-  opt('QuestAcceptAndCompleteTries', 20, null, 'Quest Accept/Complete Tries');
+  opt('ActionDelay', 800, null, 'Action Delay (ms)');
+  opt('JoinMapTries', 3, null, 'Join Map Tries');
+  opt('QuestAcceptAndCompleteTries', 30, null, 'Quest Accept/Complete Tries');
   opt('PrivateRooms', false, null, 'Private Rooms');
   opt('PrivateNumber', -1, null, 'Private Number');
   opt('ExitCombatBeforeQuest', false, null, 'Exit Combat Before Quest');
@@ -102,14 +107,14 @@
   opt('DisableFX', false, function (v) { set('litePreference.data.bDisSkillAnim', v); set('litePreference.data.bDisMonAnim', v); set('litePreference.data.bDisDmgStrobe', v); }, 'Disable FX');
   opt('ShowFPS', false, function (v) { set('ui.mcFPS.visible', v); }, 'Show FPS');
   opt('WalkSpeed', 8, function (v) { set('world.WALKSPEED', v); }, 'Walk Speed');
-  opt('SetFPS', 24, function (v) { set('stage.frameRate', v); }, 'Frame Rate');
+  opt('SetFPS', 30, function (v) { set('stage.frameRate', v); }, 'Frame Rate');
   opt('CustomName', '', function (v) { if (v) { set('world.myAvatar.objData.strUsername', v); set('world.myAvatar.pMC.pname.ti.text', v); } }, 'Custom Name');
   opt('CustomGuild', '', function (v) { if (v) set('world.myAvatar.pMC.pname.tg.text', v); }, 'Custom Guild');
   opt('AutoRelogin', false, null, 'Auto Relogin');
   Options.Defaults = function () { var o = {}; Object.keys(optDefs).forEach(function (k) { o[k] = optDefs[k].def; }); return o; };
   Options.Describe = function () { return Object.keys(optDefs).map(function (k) { return { name: k, label: optDefs[k].label, kind: optDefs[k].kind }; }); };
-  Options.Save = function () { try { var o = {}; Object.keys(optDefs).forEach(function (k) { o[k] = Options[k]; }); localStorage.setItem('skua.options', JSON.stringify(o)); } catch (e) {} };
-  Options.Load = function () { try { var o = JSON.parse(localStorage.getItem('skua.options') || '{}'); Object.keys(o).forEach(function (k) { if (k in optDefs) Options[k] = o[k]; }); } catch (e) {} };
+  Options.Save = function () { try { var o = { _v: 2 }; Object.keys(optDefs).forEach(function (k) { o[k] = Options[k]; }); localStorage.setItem('skua.options', JSON.stringify(o)); } catch (e) {} };
+  Options.Load = function () { try { var o = JSON.parse(localStorage.getItem('skua.options') || '{}'); if (o._v !== 2) { ['ActionDelay', 'JoinMapTries', 'QuestAcceptAndCompleteTries', 'SetFPS'].forEach(function (k) { delete o[k]; }); } /* v2: padrões do Skua (800/3/30/30) */ Object.keys(o).forEach(function (k) { if (k in optDefs) Options[k] = o[k]; }); } catch (e) {} };
   Options.Reset = function () { var d = Options.Defaults(); Object.keys(d).forEach(function (k) { Options[k] = d[k]; }); };
   Options.ReapplyAll = function () { Object.keys(optDefs).forEach(function (k) { var d = optDefs[k]; if (d.onSet && Options[k] !== d.def) { try { d.onSet(Options[k]); } catch (e) {} } }); };
   Object.defineProperty(Options, 'ApplyAll', { value: Options.ReapplyAll });
@@ -144,7 +149,12 @@
         Packets.subs.forEach(function (f) { try { f(dir, p); } catch (e) {} });
         if (dir === '>>') { try { clientPacket(p); } catch (e) { Logs.add('debug', 'pacote>>: ' + e.message); } }
         if (dir === '<<') { try { handlePacket(p); } catch (e) { Logs.add('debug', 'pacote: ' + e.message); } }
-        if (dir === '<<' && p.charAt(0) === '{' && Events.h.ExtensionPacketReceived && Events.h.ExtensionPacketReceived.length) { try { var pj = JSON.parse(p); if (pj && pj.t === 'xt' && pj.b) Events.emit('ExtensionPacketReceived', { params: { type: 'json', dataObj: pj.b.o } }); } catch (e) {} }
+        if (dir === '<<' && Events.h.ExtensionPacketReceived && Events.h.ExtensionPacketReceived.length) {
+          try {
+            if (p.charAt(0) === '{') { var pj = JSON.parse(p); if (pj && pj.t === 'xt' && pj.b) Events.emit('ExtensionPacketReceived', { params: { type: 'json', dataObj: pj.b.o } }); }
+            else if (p.charAt(0) === '%') { var ps = p.split('%'); Events.emit('ExtensionPacketReceived', { params: { type: 'str', dataObj: ps.slice(2, ps.length - 1) } }); }
+          } catch (e) {}
+        }
       });
     }
   };
@@ -169,6 +179,9 @@
     } else return;
     switch (cmd) {
       case 'moveToArea':
+        // ScriptInterface: reaplica nome/guilda personalizados, guarda arquivo e nome do mapa
+        try { if (Options.CustomName) Options.CustomName = Options.CustomName; if (Options.CustomGuild) Options.CustomGuild = Options.CustomGuild; } catch (e) {}
+        if (o) { Map.FilePath = String(o.strMapFileName || ''); Map.LastMap = String(o.strMapName || ''); }
         Events.emit('MapChanged', o && o.strMapName); break;
       case 'event':
         if (o && o.args && o.args.zoneSet) Events.emit('RunToArea', o.args.zoneSet); break;
@@ -288,7 +301,15 @@
 
   // ---------------- jogador ----------------
   var Player = {
-    get Playing() { return ok() && get('world.myAvatar') !== null; },
+    // Skua: Playing => LoggedIn && Alive  (LoggedIn = sfc.isConnected, Alive = State > 0)
+    get Playing() { return Player.LoggedIn && Player.Alive; },
+    get LoggedIn() {
+      if (!ok()) return false;
+      var c = get('sfc.isConnected');
+      if (c === null || c === undefined) return get('world.myAvatar') !== null; // sfc ilegível: cai para "tem avatar"
+      return c === true;
+    },
+    get Kicked() { return get('mcLogin.warning.visible') === true; },
     get Username() { return get('world.myAvatar.objData.strUsername') || ''; },
     get Level() { return get('world.myAvatar.dataLeaf.intLevel'); },
     get Gold() { return get('world.myAvatar.objData.intGold'); },
@@ -299,8 +320,8 @@
     get Exp() { return get('world.myAvatar.objData.intExp'); },
     get ExpToLevel() { return get('world.myAvatar.objData.intExpToLevel'); },
     get Guild() { return get('world.myAvatar.objData.guild.Name') || ''; },
-    get State() { return get('world.myAvatar.dataLeaf.intState'); },
-    get Alive() { var s = Player.State; return s !== null && s !== 0; },
+    get State() { return get('world.myAvatar') === null ? 0 : (get('world.myAvatar.dataLeaf.intState') || 0); },
+    get Alive() { return Player.State > 0; },
     get InCombat() { return Player.State === 2; },
     get Cell() { return get('world.strFrame') || ''; },
     get Pad() { return get('world.strPad') || ''; },
@@ -313,12 +334,22 @@
       return hp === null || hp > 0;
     },
     get IsMember() { return (get('world.myAvatar.objData.iUpgDays') || -1) >= 0; },
-    get Loaded() { return (get('world.myAvatar.items.length') || 0) > 0 && !get('world.mapLoadInProgress'); },
-    Rest: function () { return call('world.rest'); },
-    WalkTo: function (x, y, speed) {
+    // Skua: items.length > 0 && !mapLoadInProgress && pMC.artLoaded()
+    get Loaded() {
+      if ((get('world.myAvatar.items.length') || 0) <= 0 || get('world.mapLoadInProgress')) return false;
+      var art = call('world.myAvatar.pMC.artLoaded');
+      return art === null || art === undefined ? true : !!art; // chamada indisponível: não bloqueia
+    },
+    Rest: async function (full) {
+      if (Options.SafeTimings) await Wait.ForActionCooldown('Rest');
+      call('world.rest');
+      if (full) await Wait.ForTrue(function () { return Player.Health >= Player.MaxHealth && Player.Mana >= Player.MaxMana; }, 20);
+    },
+    WalkTo: async function (x, y, speed) {
       speed = (speed === undefined || speed === 8) ? (get('world.WALKSPEED') || 8) : speed;
       call('world.myAvatar.pMC.walkTo', [x, y, speed]);
       call('world.moveRequest', [{ mc: null, tx: x, ty: y, sp: speed }]);
+      if (Options.SafeTimings) await Wait.ForPlayerPosition(x, y);
     },
     Jump: function (c, p) { return Map.Jump(c, p); },
     Join: function (m, c, p) { return Map.Join(m, c, p); },
@@ -336,9 +367,11 @@
     get PlayerCount() { return get('world.areaUsers.length') || 0; },
     get Cells() { return keys('world.map.currentScene.labels').length ? snapNames('world.map.currentScene.labels') : []; },
     JoinPacket: function (map, cell, pad) { Send.Packet('%xt%zm%cmd%' + Map.RoomID + '%tfer%' + Player.Username + '%' + map + '%' + (cell || 'Enter') + '%' + (pad || 'Spawn') + '%'); },
-    Join: async function (map, cell, pad, ignoreCheck) {
+    LastMap: '', FilePath: '',
+    Join: async function (map, cell, pad, ignoreCheck, autoCorrect) {
       cell = cell || 'Enter'; pad = pad || 'Spawn';
       var base = String(map).split('-')[0];
+      Map.LastMap = base;
       if (!Player.Playing || !Player.Loaded) return;
       if (!ignoreCheck && lc(Map.Name) === lc(map)) return;
       var tries = 0;
@@ -350,15 +383,39 @@
         Map.JoinPacket(m, cell, pad);
         if (Options.SafeTimings) {
           var okLoad = await Wait.ForMapLoad(m, 20);
-          if (!okLoad && !run.stop) await Map.Jump(Player.Cell, Player.Pad);
-          else await Map.Jump(cell, pad);
+          if (!okLoad && !run.stop) await Map.Jump(Player.Cell, Player.Pad, autoCorrect);
+          else await Map.Jump(cell, pad, autoCorrect);
           await sleep(Options.ActionDelay);
         } else await sleep(Options.ActionDelay);
       }
     },
-    Jump: async function (cell, pad) {
+    // Main.as jumpCorrectRoom: com autoCorrect (padrão) escolhe o pad de quem já está na cela e depois acerta o pad ("Left")
+    _arr: function (p) { var n = get(p + '.length') || 0, o = []; for (var i = 0; i < n; i++) o.push(get(p + '.' + i)); return o; },
+    _jumpCorrectRoom: function (cell, pad, autoCorrect, clientOnly) {
+      if (autoCorrect === false) { call('world.moveToCell', [cell, pad, !!clientOnly]); return; }
+      var me = lc(Player.Username);
+      var users = Map._arr('world.areaUsers').filter(function (u) { return lc(u) !== me; }).sort();
+      if (users.length <= 1) call('world.moveToCell', [cell, pad, !!clientOnly]);
+      else {
+        var usersPad = 'Left';
+        for (var i = 0; i < users.length; i++) {
+          var uc = get('world.uoTree.' + users[i] + '.strFrame'), up = get('world.uoTree.' + users[i] + '.strPad');
+          if (up !== null) usersPad = up;
+          if (cell === uc && pad !== up) break;
+        }
+        call('world.moveToCell', [cell, usersPad, !!clientOnly]);
+      }
+      setTimeout(function () { try { Map._jumpCorrectPad(cell, !!clientOnly); } catch (e) {} }, 50);
+    },
+    _jumpCorrectPad: function (cell, clientOnly) {
+      var names = ['Left', 'Spawn', 'Center', 'Right', 'Up', 'Down', 'Top', 'Bottom'], pick = null;
+      for (var i = 0; i < names.length && !pick; i++) { var c = call('world.map.getChildByName', [names[i]]); if (c !== null && c !== undefined) pick = names[i]; }
+      if (!pick || get('world.strPad') === pick) return;
+      call('world.moveToCell', [cell, pick, clientOnly]);
+    },
+    Jump: async function (cell, pad, autoCorrect, clientOnly) {
       pad = pad || 'Spawn';
-      call('world.moveToCell', [cell, pad]);
+      Map._jumpCorrectRoom(cell, pad, autoCorrect, clientOnly);
       await sleep(Options.ActionDelay);
       if (Options.SafeTimings) await Wait.ForCellChange(cell);
     },
@@ -972,6 +1029,9 @@
       if (Runner.running) { log('já existe um script rodando'); return; }
       if (!ok()) { log('Cliente modificado indisponível: ligue "Cliente modificado" em Options > Application, recarregue e entre num mapa'); return; }
       if (Options.AcceptAllDrops || Options.AcceptACDrops || Options.RejectAllDrops) Drops.Start();
+      // ScriptManager.StartScriptAsync: Handlers.Clear() ao iniciar; guarda o script para o Auto Relogin reiniciar
+      Runner.lastCode = code; Runner.lastName = name || 'script';
+      try { if (Bot.Handlers && Bot.Handlers.Clear) Bot.Handlers.Clear(); } catch (e) {}
       run.stop = false; Runner.running = true; Runner.name = name || 'script'; Stats.Reset(); Runner._notify();
       try { W.AqwNative.keepOn(true); } catch (e) {}
       log('▶ "' + Runner.name + '" iniciado');
@@ -984,6 +1044,8 @@
         else { Runner.err = e; log('✖ ERRO: ' + (e && e.message ? e.message : e)); }
       } finally {
         try { Events.emit('ScriptStopping', Runner.err || null); } catch (e) {} Runner.err = null; Combat.StopAttacking = false; Runner.running = false; Skills.Stop(); Drops.Stop(); Events.Clear();
+        // ScriptOption.ScriptStopped: desliga o que o script ligou
+        try { Options.AutoRelogin = false; Options.LagKiller = false; Options.AggroAllMonsters = false; Options.AggroMonsters = false; Options.SkipCutscenes = false; } catch (e) {}
         if (!Auto.on) { try { W.AqwNative.keepOn(false); } catch (e) {} }
         Runner._notify();
       }

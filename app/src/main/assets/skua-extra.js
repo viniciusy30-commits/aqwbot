@@ -46,6 +46,7 @@
   addFn(P, 'IsMemberOf', function () { return P.IsMember; });
   addFn(P, 'FullyRested', function () { return P.Health >= P.MaxHealth && P.Mana >= P.MaxMana; });
   addFn(P, 'Relogin', nosup('Player.Relogin'));
+  addGet(P, 'Position', function () { return { X: P.X, Y: P.Y, x: P.X, y: P.Y }; });
 
   // ---------- Map ----------
   addGet(M, 'LastMap', function () { return M._last || ''; });
@@ -290,8 +291,8 @@
 
   // ---------- Options extras ----------
   [['AttackWithoutTarget', false], ['AggroMonsters', false], ['AggroAllMonsters', false], ['DisableCollisions', false], ['Magnetise', false], ['RestPackets', false],
-   ['SafeRelogin', false], ['AutoReloginAny', false], ['RetryRelogin', false], ['ReloginTries', 5], ['ReloginTryDelay', 3000], ['LoginTimeout', 30000], ['LoadTimeout', 30000],
-   ['MaximumTries', 10], ['HuntDelay', 1000], ['HuntBuffer', 1], ['HuntPriority', 0], ['ReloginServer', ''], ['NameColor', 0xFFFFFF], ['GuildColor', 0xFFFFFF]].forEach(function (d) {
+   ['SafeRelogin', false], ['AutoReloginAny', false], ['RetryRelogin', true], ['ReloginTries', 5], ['ReloginTryDelay', 800], ['LoginTimeout', 30000], ['LoadTimeout', 30000],
+   ['MaximumTries', 10], ['HuntDelay', 1000], ['HuntBuffer', 1], ['HuntPriority', 0], ['ReloginServer', 'Twilly'], ['NameColor', 0xFFFFFF], ['GuildColor', 0xFFFFFF]].forEach(function (d) {
     if (!(d[0] in O)) opt(d[0], d[1], d[0] === 'NameColor' ? function (v) { set('world.myAvatar.pMC.pname.ti.textColor', v); } : d[0] === 'GuildColor' ? function (v) { set('world.myAvatar.pMC.pname.tg.textColor', v); } : null, d[0]);
   });
   addFn(O, 'ResetToDefault', function () { O.Reset(); });
@@ -340,6 +341,7 @@
   addFn(Inv, 'EquipItems', async function () { var l = arr(arguments); for (var i = 0; i < l.length; i++) await Inv.EquipItem(l[i]); });
   addFn(Inv, 'EnsureToBank', async function (q) { await B.Load(); for (var i = 0; i < 5; i++) { if (!Inv.Contains(q)) return true; await Inv.ToBank(q); await sleep(O.ActionDelay); } return !Inv.Contains(q); });
   addFn(Inv, 'BankAllCoinItems', async function () { await B.Load(); var l = Inv.Items.filter(function (i) { return i.Coins && !i.Equipped; }); for (var i = 0; i < l.length; i++) { await Inv.ToBank(l[i].ID); await sleep(O.ActionDelay); } });
+  addGet(B, 'FreeSlots', function () { return (B.Slots || 0) - (B.UsedSlots || 0); });
   addFn(B, 'ToBank', function (q) { return Inv.ToBank(q); });
   addFn(B, 'EnsureToBank', function (q) { return Inv.EnsureToBank(q); });
   addFn(B, 'BankAllCoinItems', function () { return Inv.BankAllCoinItems(); });

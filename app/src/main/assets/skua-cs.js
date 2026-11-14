@@ -108,6 +108,7 @@
 
   function Parser(toks, sigs, opts) {
     this.t = toks; this.i = 0; this.sigs = sigs || {}; this.newSigs = {}; this.sigLists = Object.create(null); this.unres = []; this.opts = opts || {};
+    this.ovl = (opts && opts.ovl) || null; this.ovlCount = Object.create(null); this.ovlIdx = Object.create(null);
     this.scopes = []; this.cls = null; this.asyncOk = true; this.hoist = null; this.lambdaDepth = 0; this.catchVar = null; this.tmpN = 0;
     this.out = []; this.sriptClass = null;
   }
@@ -312,7 +313,7 @@
       if (tk.t === 'id') { stmtStart = false; if (MODS[tk.v] && tk.v !== 'new') mods[tk.v] = 1; else if (!prevId && (tk.v === 'enum' || tk.v === 'class' || tk.v === 'struct' || tk.v === 'interface' || tk.v === 'record')) { typeDecl = true; prevId = tk.v; } else prevId = tk.v; }
     }
     function addM(n, m) { if (RESERVED[n] && n !== 'get' && n !== 'set') return; (m.static || m.const ? members.stat : members.inst)[n] = 1; }
-    var saveCls = this.cls; this.cls = { name: name, members: members }; if (this.opts.collectClasses) this.opts.collectClasses.push(this.cls);
+    var saveCls = this.cls; this.cls = { name: name, members: members, ovlMeta: {} }; if (this.opts.collectClasses) this.opts.collectClasses.push(this.cls);
     var parts = [], ctorFields = [], hasCtor = false, extra = [];
     while (!this.is('}')) {
       if (this.peek().t === 'eof') this.fail('fim inesperado na classe ' + name);
@@ -320,6 +321,11 @@
       var m = this.parseMember(name, extra); if (m) parts.push(m);
     }
     this.expect('}');
+    var ovlMeta = this.cls.ovlMeta;
+    Object.keys(ovlMeta).forEach(function (k) {
+      var o = ovlMeta[k], tbl = JSON.stringify(o.list);
+      parts.push((o.isStatic ? 'static ' : '') + 'async ' + o.name + '(...a) { return await ' + (o.isStatic ? name : 'this') + '[__ovl(' + tbl + ', a).f](...a); }');
+    });
     this.cls = saveCls;
     var js = 'class ' + name + ' {\n' + parts.join('\n') + '\n}';
     return js + (extra.length ? '\n' + extra.join('\n') : '');
@@ -352,10 +358,19 @@
       (this.sigLists[(isStatic ? cname + '.' : '') + name] = this.sigLists[(isStatic ? cname + '.' : '') + name] || []).push(p.names);
       if (this.is(';')) { this.next(); return ''; } // abstrato
       var isAsync = true;
+      // sobrecargas (mesmo nome, parâmetros diferentes): JS só guarda a última; renomeia cada uma e gera um despachante
+      var okey = cname + '|' + (isStatic ? 's' : 'i') + '|' + name, emitName = name;
+      this.ovlCount[okey] = (this.ovlCount[okey] || 0) + 1;
+      if (this.ovl && this.ovl[okey] > 1 && this.cls) {
+        var oix = this.ovlIdx[okey] = (this.ovlIdx[okey] || 0) + 1; emitName = name + '$ov' + oix;
+        var om = this.cls.ovlMeta[okey] = this.cls.ovlMeta[okey] || { name: name, isStatic: isStatic, list: [] };
+        om.list.push({ f: emitName, t: p.types, o: p.opt, p: p.prm });
+      }
       var b;
       if (this.accept('=>')) { var save = this.snapshotFn(p, true); var e = this.parseExpr(); this.expect(';'); b = this.finishFn(save, 'return ' + e + ';'); }
       else b = this.parseFunctionBody(p, true, true);
-      return prefix + 'async ' + name + '(' + p.js + ') { ' + b + ' }';
+      if (p.ext && isStatic && extra) { var extKey = 'ext$' + cname + '$' + name; if (!this.extSeen) this.extSeen = {}; if (!this.extSeen[extKey]) { this.extSeen[extKey] = 1; extra.push('__ext(' + cname + ', ' + JSON.stringify(name) + ', ' + JSON.stringify(p.types[0]) + ');'); } }
+      return prefix + 'async ' + emitName + '(' + p.js + ') { ' + b + ' }';
     }
     // propriedade
     if (this.is('{') || this.is('=>')) {
@@ -408,22 +423,25 @@
 
   // ---- funções ----
   PP.parseParams = function () {
-    this.expect('('); var names = [], js = [], defs = [];
+    this.expect('('); var names = [], js = [], defs = [], ptypes = [], popt = [], pprm = [], isExt = false;
     this.pushScope();
     while (!this.is(')')) {
       this.skipAttributes();
       var isParams = false;
-      while (this.is('this') || this.is('ref') || this.is('out') || this.is('in') || this.is('params')) { if (this.is('params')) isParams = true; this.next(); }
+      while (this.is('this') || this.is('ref') || this.is('out') || this.is('in') || this.is('params')) { if (this.is('params')) isParams = true; if (this.is('this') && !names.length) isExt = true; this.next(); }
+      var ts0 = this.i;
       var ty = this.tryType(); if (!ty) this.fail('parâmetro inválido');
+      var tyTxt = this.t.slice(ts0, this.i).map(function (tk) { return tk.v; }).join('');
       var n = this.ident(); this.declare(n); names.push(n);
       var d = null;
       if (this.accept('=')) { var sv = this.snapshotFn({ names: [] }, false, true); d = this.parseExpr(); this.finishFnExpr(sv); }
+      ptypes.push(tyTxt); popt.push(d !== null); pprm.push(isParams);
       js.push(isParams ? '...' + n : (d !== null ? n + ' = ' + d : n));
       if (!this.accept(',')) break;
     }
     this.expect(')');
     var scope = this.scopes.pop();
-    return { names: names, js: js.join(', '), scope: scope };
+    return { names: names, js: js.join(', '), scope: scope, types: ptypes, opt: popt, prm: pprm, ext: isExt };
   };
   PP.snapshotFn = function (p, asyncOk, keep) {
     var s = { scopes: this.scopes, asyncOk: this.asyncOk, hoist: this.hoist, tmpN: this.tmpN, catchVar: this.catchVar };
@@ -628,7 +646,7 @@
     if (x.t === 'op' && ASSIGN[x.v]) {
       this.next(); var rhs = this.is('{') ? this.parseArrayLiteral() : this.parseExpr();
       var ev = /^(.*)\.Events\.([A-Za-z_]\w*)$/.exec(lhs);
-      if (ev && (x.v === '+=' || x.v === '-=')) return '(' + ev[1] + '.Events.' + (x.v === '+=' ? 'On' : 'Off') + '("' + ev[2] + '", ' + rhs + '))';
+      if (ev && (x.v === '+=' || x.v === '-=')) return '(' + ev[1] + '.Events.' + (x.v === '+=' ? 'On' : 'Off') + '("' + ev[2] + '", ' + rhs + ', this))';
       return '(' + lhs + ' ' + x.v + ' ' + rhs + ')';
     }
     return lhs;
@@ -948,7 +966,7 @@
     p1.parseUnit(); sigs = p1.sigLists;
     Object.keys(p1.sigLists).forEach(function (k) { var nm = k.split('.').pop(); var L = GSIGS[nm] = GSIGS[nm] || []; p1.sigLists[k].forEach(function (names) { if (!L.some(function (x) { return x.join(',') === names.join(','); })) L.push(names); }); });
     var collect2 = [];
-    var p2 = new Parser(tokenize(src, []), sigs, { collectClasses: collect2 });
+    var p2 = new Parser(tokenize(src, []), sigs, { collectClasses: collect2, ovl: p1.ovlCount });
     var js = p2.parseUnit();
     var entry = null;
     // classe que tem ScriptMain
@@ -1067,7 +1085,7 @@
   function CsStopwatch() { this.t = 0; this.s = 0; } CsStopwatch.StartNew = function () { var w = new CsStopwatch(); w.Start(); return w; };
   CsStopwatch.prototype.Start = function () { this.s = Date.now(); }; CsStopwatch.prototype.Stop = function () { this.t += Date.now() - this.s; this.s = 0; }; CsStopwatch.prototype.Restart = function () { this.t = 0; this.s = Date.now(); };
   Object.defineProperty(CsStopwatch.prototype, 'ElapsedMilliseconds', { get: function () { return this.t + (this.s ? Date.now() - this.s : 0); } });
-  function CsStringBuilder(s) { this.s = s || ''; } CsStringBuilder.prototype.Append = function (x) { this.s += __str(x); return this; }; CsStringBuilder.prototype.AppendLine = function (x) { this.s += (x === undefined ? '' : __str(x)) + '\n'; return this; }; CsStringBuilder.prototype.ToString = function () { return this.s; }; CsStringBuilder.prototype.toString = CsStringBuilder.prototype.ToString;
+  function CsStringBuilder(s) { this.s = typeof s === 'string' ? s : ''; /* new StringBuilder(int capacity) não é texto */ } CsStringBuilder.prototype.Append = function (x) { this.s += __str(x); return this; }; CsStringBuilder.prototype.AppendLine = function (x) { this.s += (x === undefined ? '' : __str(x)) + '\n'; return this; }; CsStringBuilder.prototype.ToString = function () { return this.s; }; CsStringBuilder.prototype.toString = CsStringBuilder.prototype.ToString;
   Object.defineProperty(CsStringBuilder.prototype, 'Length', { get: function () { return this.s.length; } }); Object.defineProperty(CsStringBuilder.prototype, 'length', { get: function () { return this.s.length; } });
   function __str(x) { return x === null || x === undefined ? '' : (x === true ? 'True' : x === false ? 'False' : String(x)); }
   function __fmt(v, f) {
@@ -1079,6 +1097,54 @@
   }
   function __chr(x) { return typeof x === 'number' ? String.fromCharCode(x) : String(x); }
   function __newArray(n) { return new Array(n).fill(0); }
+  // ---- sobrecargas: escolhe a assinatura pelos tipos reais dos argumentos (como o compilador C# faz) ----
+  function ovlScore(v, ty) {
+    var raw = String(ty).replace(/\s+/g, ''), nullable = /\?$/.test(raw) || /^Nullable</.test(raw), b = raw.replace(/\?$/, '');
+    var isArr = /\[\]$/.test(b), gm = /^(?:List|IList|IEnumerable|ICollection|HashSet|IReadOnlyList|IReadOnlyCollection)<(.+)>$/.exec(b);
+    var el = isArr ? b.replace(/\[\]$/, '') : (gm ? gm[1] : null);
+    if (v === undefined) return 0;
+    if (v === null) { if (/^(int|long|short|byte|uint|ulong|ushort|sbyte|double|float|decimal|bool|char|Int32|Int64)$/.test(b) && !nullable) return -1; return 1; }
+    if (b === 'object' || b === 'dynamic' || /^[A-Z]$/.test(b)) return 1;
+    if (el !== null) {
+      if (!Array.isArray(v)) return /^string$/i.test(b) ? -1 : (typeof v === 'object' && v && typeof v[Symbol.iterator] === 'function' ? 2 : -1);
+      if (v.length === 0) return 2;
+      var e0 = v[0], ee = el.replace(/\?$/, '');
+      if (/^(string|String)$/.test(ee)) return typeof e0 === 'string' ? 3 : -1;
+      if (/^(int|long|short|byte|double|float|decimal|Int32|Int64|uint)$/.test(ee)) return typeof e0 === 'number' ? 3 : -1;
+      if (/^(bool|Boolean)$/.test(ee)) return typeof e0 === 'boolean' ? 3 : -1;
+      return typeof e0 === 'object' || typeof e0 === 'function' ? 2 : -1;
+    }
+    if (/^(string|String)$/.test(b)) return typeof v === 'string' ? 3 : -1;
+    if (/^(char|Char)$/.test(b)) return typeof v === 'string' && v.length === 1 ? 3 : (typeof v === 'number' ? 1 : -1);
+    if (/^(int|long|short|byte|uint|ulong|ushort|sbyte|Int32|Int64)$/.test(b)) return typeof v === 'number' ? (Number.isInteger(v) ? 3 : -1) : -1;
+    if (/^(double|float|decimal|Double)$/.test(b)) return typeof v === 'number' ? (Number.isInteger(v) ? 2 : 3) : -1;
+    if (/^(bool|Boolean)$/.test(b)) return typeof v === 'boolean' ? 3 : -1;
+    if (/^(Func|Action|Predicate|Comparison|Delegate)/.test(b)) return typeof v === 'function' ? 3 : -1;
+    if (typeof v === 'string' || typeof v === 'boolean') return -1;
+    if (Array.isArray(v)) return /^(Array|IEnumerable|IList|ICollection|List)/.test(b) ? 2 : -1;
+    if (typeof v === 'number') return 1; // enum
+    return 2;
+  }
+  function ovlPick(tbl, a) {
+    var eff = a.length; while (eff > 0 && a[eff - 1] === undefined) eff--;
+    var best = null, bs = -Infinity;
+    tbl.forEach(function (m) {
+      var np = m.t.length, hasP = m.p.some(Boolean), req = 0, i;
+      for (i = 0; i < np; i++) if (!m.o[i] && !m.p[i]) req++;
+      if (eff < req) return;
+      if (!hasP && eff > np) return;
+      var sc = 0;
+      for (i = 0; i < eff; i++) {
+        var ti = i < np ? i : np - 1, ty = m.t[ti], v = a[i], s;
+        if (m.p[ti]) { var et = String(ty).replace(/\[\]$/, ''); s = (i === ti && eff === np && Array.isArray(v) && ovlScore(v, ty) >= 0) ? 3 : ovlScore(v, et); }
+        else s = ovlScore(v, ty);
+        if (s < 0) return; sc += s;
+      }
+      sc = sc * 100 - np;
+      if (sc > bs) { bs = sc; best = m; }
+    });
+    return best || tbl[tbl.length - 1];
+  }
   function __is(x, t) { if (x === null || x === undefined) return false; var b = t.replace(/<.*$/, ''); if (/^(string|String)$/.test(b)) return typeof x === 'string'; if (/^(int|long|double|float|short|byte|decimal|Int32)$/.test(b)) return typeof x === 'number'; if (/^(bool|Boolean)$/.test(b)) return typeof x === 'boolean'; if (/^(List|IEnumerable|Array)$/.test(b)) return Array.isArray(x); var c = W[b]; return typeof c === 'function' ? x instanceof c : true; }
   var Sleep = function (ms) { return W.Bot.Sleep(ms); };
   var statics = {
@@ -1201,7 +1267,25 @@
     W.__ntup = function (a, names) { names.forEach(function (n, i) { if (n) Object.defineProperty(a, n, { get: function () { return this[i]; }, set: function (v) { this[i] = v; }, enumerable: false, configurable: true }); }); return a; };
     W.__at = function (a, n) { return a[a.length - n]; };
     W.__throw = function (e) { throw e; };
-    W.__slice = function (a, x, y) { return typeof a === 'string' ? a.slice(x, y) : Array.prototype.slice.call(a, x, y); }; W.__str = __str; W.__fmt = __fmt; W.__chr = __chr; W.__newArray = __newArray; W.__is = __is;
+    W.__slice = function (a, x, y) { return typeof a === 'string' ? a.slice(x, y) : Array.prototype.slice.call(a, x, y); }; W.__str = __str; W.__fmt = __fmt; W.__chr = __chr; W.__newArray = __newArray; W.__is = __is; W.__ovl = ovlPick;
+    // métodos de extensão do C# (static ... Metodo(this string x, ...)): vira x.Metodo(...) no protótipo certo (sem sobrescrever o que já existe)
+    // BCL: normalização Unicode (usada por FormatForCompare do CoreBots)
+    if (!SP.Normalize) Object.defineProperty(SP, 'Normalize', { value: function (f) { return this.normalize(f && /^NF/.test(f) ? f : 'NFC'); }, writable: true, configurable: true, enumerable: false });
+    W.NormalizationForm = W.NormalizationForm || { FormC: 'NFC', FormD: 'NFD', FormKC: 'NFKC', FormKD: 'NFKD' };
+    W.UnicodeCategory = W.UnicodeCategory || { NonSpacingMark: 'NonSpacingMark', UppercaseLetter: 'UppercaseLetter', LowercaseLetter: 'LowercaseLetter', DecimalDigitNumber: 'DecimalDigitNumber', SpaceSeparator: 'SpaceSeparator', OtherLetter: 'OtherLetter' };
+    W.CharUnicodeInfo = W.CharUnicodeInfo || { GetUnicodeCategory: function (c) { c = String(c); return /^\p{Mn}$/u.test(c) ? 'NonSpacingMark' : /^\p{Lu}$/u.test(c) ? 'UppercaseLetter' : /^\p{Ll}$/u.test(c) ? 'LowercaseLetter' : /^\p{Nd}$/u.test(c) ? 'DecimalDigitNumber' : /^\p{Zs}$/u.test(c) ? 'SpaceSeparator' : 'OtherLetter'; } };
+    W.__ext = function (cls, name, type) {
+      var t = String(type).replace(/\?$/, ''), proto;
+      if (/^(string|String)$/.test(t)) proto = String.prototype;
+      else if (/\[\]$/.test(t) || /^(List|IList|IEnumerable|ICollection|IReadOnlyList|IReadOnlyCollection|HashSet|Array)(<|$)/.test(t)) proto = Array.prototype;
+      else if (/^(int|long|short|byte|uint|double|float|decimal|Int32|Int64)$/.test(t)) proto = Number.prototype;
+      else if (/^(bool|Boolean)$/.test(t)) proto = Boolean.prototype;
+      else proto = Object.prototype;
+      if (Object.prototype.hasOwnProperty.call(proto, name) && !(proto[name] && proto[name].__ext)) return;
+      var f = function () { 'use strict'; var a = [this]; for (var i = 0; i < arguments.length; i++) a.push(arguments[i]); return cls[name].apply(cls, a); };
+      f.__ext = true;
+      Object.defineProperty(proto, name, { value: f, writable: true, configurable: true, enumerable: false });
+    };
     W.__chk = function () { if (Bot.ShouldExit) throw new Error('__SKUA_STOP__'); };
     W.CoreBots = Core; W.IScriptInterface = iface;
     Object.keys(libs).forEach(function (k) { W[k] = libs[k]; });
